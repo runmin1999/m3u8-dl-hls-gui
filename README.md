@@ -1,5 +1,7 @@
 # MISSAV M3U8 Video Downloader
 
+[English](README.md) | [中文](README.zh-CN.md)
+
 A desktop M3U8 video downloader built with Python and CustomTkinter, featuring AES-128 decryption, multi-threaded concurrent downloads, resume support, and resolution selection.
 
 ## Features
