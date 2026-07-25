@@ -120,7 +120,7 @@ app.py (GUI)          main.py (CLI)
     └── merger.py          └── merger.py
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed flow diagrams and technical deep-dive.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (English) | [docs/ARCHITECTURE.zh-CN.md](docs/ARCHITECTURE.zh-CN.md) (中文) for detailed flow diagrams and technical deep-dive.
 
 ## Configuration
 
@@ -147,7 +147,8 @@ m3u8-dl-hls-gui/
 ├── requirements.txt    # Python dependencies
 ├── start.bat           # Windows one-click launcher
 ├── docs/
-│   └── ARCHITECTURE.md # Technical architecture docs
+│   ├── ARCHITECTURE.md     # Technical architecture docs (EN)
+│   └── ARCHITECTURE.zh-CN.md # Technical architecture docs (ZH)
 ├── config.json         # User config (auto-generated)
 ├── Logs/               # Log directory (auto-generated)
 └── Downloads/          # Default download directory (auto-generated)

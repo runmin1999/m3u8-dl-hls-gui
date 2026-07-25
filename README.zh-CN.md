@@ -120,7 +120,7 @@ app.py (GUI)          main.py (CLI)
     └── merger.py          └── merger.py
 ```
 
-详细流程图和技术原理请参阅 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+详细流程图和技术原理请参阅 [docs/ARCHITECTURE.zh-CN.md](docs/ARCHITECTURE.zh-CN.md)（中文）| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)（English）。
 
 ## 配置文件
 
@@ -147,7 +147,8 @@ m3u8-dl-hls-gui/
 ├── requirements.txt    # Python 依赖
 ├── start.bat           # Windows 一键启动脚本
 ├── docs/
-│   └── ARCHITECTURE.md # 技术架构文档
+│   ├── ARCHITECTURE.md     # 技术架构文档（英文）
+│   └── ARCHITECTURE.zh-CN.md # 技术架构文档（中文）
 ├── config.json         # 用户配置（自动生成）
 ├── Logs/               # 日志目录（自动生成）
 └── Downloads/          # 默认下载目录（自动生成）

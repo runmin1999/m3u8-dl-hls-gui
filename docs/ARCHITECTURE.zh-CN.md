@@ -1,48 +1,48 @@
-# Architecture & Technical Deep-Dive
+# 技术架构与原理
 
 [English](ARCHITECTURE.md) | [中文](ARCHITECTURE.zh-CN.md)
 
-This document describes the internal workflow and technical principles of each core module in M3U8-DL-HLS-GUI.
+本文档详细介绍 M3U8-DL-HLS-GUI 各核心模块的工作流程和技术原理。
 
 ---
 
-## Table of Contents
+## 目录
 
-1. [M3U8 Parsing](#1-m3u8-parsing)
-2. [Multi-threaded Download](#2-multi-threaded-download)
-3. [AES-128 Decryption](#3-aes-128-decryption)
-4. [Resume Support](#4-resume-support)
-5. [Resolution Selection](#5-resolution-selection)
-6. [Proxy Support](#6-proxy-support)
-7. [Custom Headers](#7-custom-headers)
-8. [Complete Download Flow](#8-complete-download-flow)
+1. [M3U8 解析](#1-m3u8-解析)
+2. [多线程下载](#2-多线程下载)
+3. [AES-128 解密](#3-aes-128-解密)
+4. [断点续传](#4-断点续传)
+5. [分辨率选择](#5-分辨率选择)
+6. [代理支持](#6-代理支持)
+7. [自定义请求头](#7-自定义请求头)
+8. [整体下载流程](#8-整体下载流程)
 
 ---
 
-## 1. M3U8 Parsing
+## 1. M3U8 解析
 
-### 1.1 What is M3U8
+### 1.1 什么是 M3U8
 
-M3U8 is a playlist format used by HLS (HTTP Live Streaming). It is a plain-text file describing video segment information. HLS splits video into small `.ts` segments and downloads them one by one over HTTP.
+M3U8 是 HLS（HTTP Live Streaming）协议使用的播放列表格式。它是一个纯文本文件，描述了视频的分片信息。HLS 将视频切成 small 的 `.ts` 片段，通过 HTTP 逐个下载。
 
-### 1.2 Two Playlist Types
+### 1.2 两种 Playlist 类型
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                   Master Playlist                        │
-│  (multi-bitrate entry, points to multiple Media Playlists)│
+│  (多码率入口，指向多个 Media Playlist)                    │
 ├─────────────────────────────────────────────────────────┤
 │                                                         │
-│  #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360  │──→ 360p.m3u8
+│  #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360 │──→ 360p.m3u8
 │  #EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1280x720│──→ 720p.m3u8
 │  #EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080│──→ 1080p.m3u8
 │                                                         │
 └─────────────────────────────────────────────────────────┘
                          │
-                         ▼ User selects bitrate
+                         ▼ 用户选择码率
 ┌─────────────────────────────────────────────────────────┐
 │                   Media Playlist                         │
-│  (actual TS segment list)                                │
+│  (实际的 TS 分片列表)                                     │
 ├─────────────────────────────────────────────────────────┤
 │                                                         │
 │  #EXT-X-TARGETDURATION:10                                │
@@ -58,20 +58,19 @@ M3U8 is a playlist format used by HLS (HTTP Live Streaming). It is a plain-text 
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 1.3 Parsing Flow
+### 1.3 解析流程
 
 ```
-M3U8 text content
+M3U8 文本内容
     │
     ▼
 ┌──────────────────┐
-│ Check #EXTM3U    │ ← Invalid file → raise error
-│ header            │
+│  检查 #EXTM3U 头  │ ← 无效文件则报错
 └────────┬─────────┘
          │
          ▼
 ┌──────────────────────────────┐
-│ Detect #EXT-X-STREAM-INF    │
+│ 检测是否包含 #EXT-X-STREAM-INF │
 └────────┬─────────────────────┘
          │
     ┌────┴────┐
@@ -81,161 +80,160 @@ M3U8 text content
   Playlist Playlist
     │         │
     ▼         ▼
-  Parse    Parse
-  streams  segments
+  解析码率流  解析分片列表
   ┌────────┐ ┌────────────────┐
-  │BANDWIDTH│ │EXTINF: duration│
-  │RESOLUTION│ │EXT-X-KEY: enc  │
-  │URL      │ │segment URL     │
+  │BANDWIDTH│ │EXTINF: 时长     │
+  │RESOLUTION│ │EXT-X-KEY: 加密  │
+  │URL: 地址 │ │分片URL          │
   └────────┘ └────────────────┘
 ```
 
-### 1.4 Key Parsing Logic
+### 1.4 关键解析逻辑
 
-**Attribute regex**: `([A-Z0-9_-]+)=("([^"]*)"|([^,]*))`
+**属性解析正则**：`([A-Z0-9_-]+)=("([^"]*)"|([^,]*))`
 
-- Matches `KEY=VALUE` or `KEY="VALUE"` format
-- Supports quoted values (e.g. `CODECS="avc1.64001e,mp4a.40.2"`)
+- 匹配 `KEY=VALUE` 或 `KEY="VALUE"` 格式
+- 支持带引号的值（如 `CODECS="avc1.64001e,mp4a.40.2"`）
 
-**Relative URL resolution**: Uses `urllib.parse.urljoin` to convert relative paths to absolute URLs
+**相对 URL 拼接**：使用 `urllib.parse.urljoin` 将相对路径转为绝对路径
 
-**Encryption info propagation**: `EXT-X-KEY` propagates to subsequent segments until a new `EXT-X-KEY` tag is encountered
+**加密信息传递**：`EXT-X-KEY` 会向下传递给后续分片，直到遇到新的 `EXT-X-KEY` 标签
 
 ---
 
-## 2. Multi-threaded Download
+## 2. 多线程下载
 
-### 2.1 Architecture
+### 2.1 架构设计
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │                  ThreadPoolExecutor                  │
-│                  (default 20 workers)                │
+│                  (默认 20 并发)                       │
 ├─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────────┤
 │ T1  │ T2  │ T3  │ T4  │ T5  │ T6  │ ... │  T20    │
 └──┬──┘└──┬─┘└──┬──┘└──┬──┘└──┬──┘└──┬──┘└──┬──┘└───┬──┘
    │      │     │      │      │      │      │       │
    ▼      ▼     ▼      ▼      ▼      ▼      ▼       ▼
 ┌─────────────────────────────────────────────────────┐
-│              requests.Session (connection pool)      │
+│              requests.Session (连接池)               │
 │         HTTPAdapter(pool_connections=50,             │
 │                     pool_maxsize=50)                 │
 ├─────────────────────────────────────────────────────┤
-│  conn1   conn2   conn3   conn4  ...   conn50        │
+│  连接1    连接2    连接3    连接4   ...   连接50      │
 └─────────────────────────────────────────────────────┘
    │        │        │        │              │
    ▼        ▼        ▼        ▼              ▼
- HTTP server (TS segment files)
+ HTTP服务器（TS 分片文件）
 ```
 
-### 2.2 Atomic Write Mechanism
+### 2.2 原子写入机制
 
 ```
-Write flow:
+写入流程：
 
   session.get(segment.url)
        │
        ▼
   ┌──────────────┐
-  │ Write .tmp   │ ← Temp file; interruption won't corrupt target
-  │ (streaming)  │   chunk_size=8192 (8KB)
+  │ 写入 .tmp 文件 │  ← 临时文件，写入过程中如果中断不会影响目标文件
+  │ (流式写入)    │     chunk_size=8192 (8KB)
   └──────┬───────┘
-         │ Write complete
+         │ 写入完成
          ▼
   ┌──────────────┐
-  │ os.replace   │ ← Atomic operation: instant swap
-  │ .tmp → .ts   │   Either fully exists or doesn't exist
+  │ os.replace   │  ← 原子操作：瞬间替换
+  │ .tmp → .ts   │     要么完整存在，要么不存在
   └──────────────┘
 ```
 
-### 2.3 Retry Strategy
+### 2.3 重试策略
 
 ```
-Download failed
+下载失败
    │
-   ▼ Retry 1 (wait 1s)
-   │── Success → return
-   │── Failed ↓
-   ▼ Retry 2 (wait 2s)
-   │── Success → return
-   │── Failed ↓
-   ▼ Retry 3 (wait 3s)
-   │── Success → return
-   │── Failed ↓
-   ▼ Retry 4 (wait 4s)
-   │── Success → return
-   │── Failed ↓
-   ▼ Retry 5 (wait 5s)
-   │── Success → return
-   │── Failed → mark as failed segment
+   ▼ 第 1 次重试（等待 1 秒）
+   │── 成功 → 返回
+   │── 失败 ↓
+   ▼ 第 2 次重试（等待 2 秒）
+   │── 成功 → 返回
+   │── 失败 ↓
+   ▼ 第 3 次重试（等待 3 秒）
+   │── 成功 → 返回
+   │── 失败 ↓
+   ▼ 第 4 次重试（等待 4 秒）
+   │── 成功 → 返回
+   │── 失败 ↓
+   ▼ 第 5 次重试（等待 5 秒）
+   │── 成功 → 返回
+   │── 失败 → 标记为失败分片
 ```
 
-### 2.4 Thread Safety
+### 2.4 线程安全
 
 ```python
-# Shared variables protected by threading.Lock
+# 共享变量通过 threading.Lock 保护
 _lock = threading.Lock()
 
 with _lock:
-    results[seg.index] = filepath   # Update results
-    completed += 1                   # Update counter
-    bytes_downloaded += seg_size     # Update byte count
+    results[seg.index] = filepath   # 更新结果
+    completed += 1                   # 更新计数
+    bytes_downloaded += seg_size     # 更新字节数
 ```
 
 ---
 
-## 3. AES-128 Decryption
+## 3. AES-128 解密
 
-### 3.1 Encryption Principle
+### 3.1 加密原理
 
-HLS uses AES-128-CBC mode to encrypt TS segments:
+HLS 使用 AES-128-CBC 模式加密 TS 分片：
 
 ```
-Plaintext data (TS segment)
+明文数据（TS 分片）
       │
       ▼
 ┌─────────────────────────────────┐
-│        AES-128-CBC Encryption   │
+│         AES-128-CBC 加密         │
 │                                 │
-│  Key (16 bytes) ──→ AES cipher  │
-│  IV (16 bytes) ──→            │
-│  Plaintext ─────→            │
+│  密钥（16字节）──→ AES 加密器     │
+│  IV（16字节）───→              │
+│  明文数据 ─────→              │
 │                   ↓            │
-│              Ciphertext         │
+│              密文数据            │
 └─────────────────────────────────┘
 ```
 
-### 3.2 Decryption Flow
+### 3.2 解密流程
 
 ```
-EXT-X-KEY tag from M3U8
+M3U8 中的 EXT-X-KEY 标签
 │
 ├── METHOD=AES-128
-├── URI="https://example.com/key.bin"   ← Key URL
-└── IV=0x1234567890ABCDEF...            ← Initialization vector (optional)
+├── URI="https://example.com/key.bin"   ← 密钥地址
+└── IV=0x1234567890ABCDEF...            ← 初始化向量（可选）
          │
          ▼
 ┌──────────────────────────────┐
 │   fetch_key(key_url)         │
 │                              │
-│   Check key cache ──hit──→ return cached key
+│   查密钥缓存 ──命中──→ 返回缓存密钥
 │       │                      │
-│       miss                   │
+│       未命中                  │
 │       ▼                      │
 │   HTTP GET key.bin           │
 │       │                      │
 │       ▼                      │
-│   Return 16-byte key         │
-│   Write to cache (thread-safe)│
+│   返回 16 字节密钥            │
+│   写入缓存（线程安全）         │
 └──────────────────────────────┘
          │
          ▼
 ┌──────────────────────────────┐
 │   decrypt_segment()          │
 │                              │
-│   encrypted_data (ciphertext)│
-│   key (16-byte key)          │
-│   iv (16-byte IV)            │
+│   encrypted_data（密文）       │
+│   key（16字节密钥）            │
+│   iv（16字节 IV）             │
 │       │                      │
 │       ▼                      │
 │   AES.new(key, CBC, iv)     │
@@ -244,105 +242,102 @@ EXT-X-KEY tag from M3U8
 │   AES.decrypt(data)          │
 │       │                      │
 │       ▼                      │
-│   Remove PKCS7 padding       │
+│   去除 PKCS7 填充             │
 │       │                      │
 │       ▼                      │
-│   Return plaintext           │
+│   返回明文数据                │
 └──────────────────────────────┘
 ```
 
-### 3.3 PKCS7 Padding
+### 3.3 PKCS7 填充
 
-AES requires data length to be a multiple of 16. PKCS7 pads the end:
-
-```
-Original data (14 bytes):  [A][B][C][D][E][F][G][H][I][J][K][L][M][N]
-PKCS7 pad 2 bytes:         [A][B][C][D][E][F][G][H][I][J][K][L][M][N][02][02]
-                                                               ↑padding
-
-Original data (16 bytes):  [A][B][C][D][E][F][G][H][I][J][K][L][M][N][O][P]
-PKCS7 pad 16 bytes:        [A][B][C][D][E][F][G][H][I][J][K][L][M][N][O][P][10]...[10]
-```
-
-### 3.4 Key Caching
+AES 要求数据长度为 16 的倍数，PKCS7 在末尾填充：
 
 ```
-1st encrypted segment
+原始数据（14字节）:  [A][B][C][D][E][F][G][H][I][J][K][L][M][N]
+PKCS7 填充 2 字节:  [A][B][C][D][E][F][G][H][I][J][K][L][M][N][02][02]
+                                                               ↑填充
+
+原始数据（16字节）:  [A][B][C][D][E][F][G][H][I][J][K][L][M][N][O][P]
+PKCS7 填充 16 字节: [A][B][C][D][E][F][G][H][I][J][K][L][M][N][O][P][10]...[10]
+```
+
+### 3.4 密钥缓存
+
+```
+第 1 个加密分片
     │
     ▼
-key_url in cache?
-    │── Yes → return cached key directly
-    │── No ↓
+key_url 在缓存中？
+    │── 是 → 直接返回缓存密钥
+    │── 否 ↓
     │
     HTTP GET key_url
     │
     ▼
-    Save to _key_cache[key_url] = key
+    保存到 _key_cache[key_url] = key
     │
     ▼
-    Return key
+    返回密钥
 
-Nth encrypted segment (same key_url)
+第 N 个加密分片（使用相同 key_url）
     │
     ▼
-key_url in cache? → hit → return directly (skip network request)
+key_url 在缓存中？ → 命中 → 直接返回（跳过网络请求）
 ```
 
 ---
 
-## 4. Resume Support
+## 4. 断点续传
 
-### 4.1 Principle
+### 4.1 原理
 
-Resume support is based on two key designs:
+断点续传基于两个关键设计：
 
-1. **Atomic writes**: Each segment is written to `.tmp` then renamed, ensuring downloaded `.ts` files are always complete
-2. **Index set**: Tracks which segment indices have been successfully downloaded
+1. **原子写入**：每个分片文件写入 `.tmp` 后再重命名，确保已下载的 `.ts` 文件是完整的
+2. **索引集合**：记录已成功下载的分片索引
 
-### 4.2 Flow
+### 4.2 流程
 
 ```
-Task start / resume
+任务启动 / 恢复
     │
     ▼
 ┌──────────────────────────────┐
-│  Load downloaded segment     │
-│  index set                   │
+│  加载已下载分片索引集合        │
 │  _downloaded_indices = {0,1,2}│
 └──────────────┬───────────────┘
                │
                ▼
 ┌──────────────────────────────┐
-│  Iterate all segments        │
+│  遍历所有分片                 │
 │                              │
 │  for seg in segments:        │
 │    if seg.index in indices:  │
-│      Verify .ts exists & > 0 │
-│      │── exists → skip       │
-│      │── missing → re-download│
+│      验证 .ts 文件存在且 > 0  │
+│      │── 存在 → 跳过（不下载）│
+│      │── 不存在 → 重新下载    │
 │    else:                     │
-│      Add to download queue   │
+│      加入下载队列             │
 └──────────────┬───────────────┘
                │
                ▼
 ┌──────────────────────────────┐
-│  Multi-thread download of    │
-│  remaining segments          │
-│  Update index set on success │
+│  多线程下载未完成的分片        │
+│  下载成功后更新索引集合        │
 └──────────────┬───────────────┘
                │
                ▼
 ┌──────────────────────────────┐
-│  Save index set to           │
-│  tasks_history.json          │
-│  Recoverable on next launch  │
+│  保存索引集合到 tasks_history  │
+│  下次启动时可恢复             │
 └──────────────────────────────┘
 ```
 
-### 4.3 Pause / Resume Mechanism
+### 4.3 暂停/恢复机制
 
 ```
-User clicks "Pause"
+用户点击"暂停"
     │
     ▼
 ┌──────────────────┐
@@ -352,19 +347,19 @@ User clicks "Pause"
 │   "paused"        │
 └──────────────────┘
         │
-        ▼  stop_check() in download thread detects pause
+        ▼  下载线程中的 stop_check() 检测到暂停
 ┌──────────────────┐
 │ while _pause_flag │
-│   sleep(0.3)     │  ← Loop waiting, don't exit thread
+│   sleep(0.3)     │  ← 循环等待，不退出线程
 │                  │
-│   _stop_flag?    │── True → exit (user clicked Stop)
+│   _stop_flag?    │── True → 退出（用户点了停止）
 │     │            │
 │     False        │
 │     ↓            │
-│   Continue waiting│
+│   继续等待       │
 └──────────────────┘
         │
-        ▼ User clicks "Resume"
+        ▼ 用户点击"继续"
 ┌──────────────────┐
 │ _pause_flag =    │
 │   False           │
@@ -374,23 +369,23 @@ User clicks "Pause"
 │   "downloading"  │
 └──────────────────┘
         │
-        ▼  stop_check() returns False, download thread resumes
+        ▼  stop_check() 返回 False，下载线程恢复执行
 ```
 
 ---
 
-## 5. Resolution Selection
+## 5. 分辨率选择
 
-### 5.1 Flow
+### 5.1 流程
 
 ```
-User inputs M3U8 URL
+用户输入 M3U8 URL
     │
     ▼
-Parse Master Playlist
+解析 Master Playlist
     │
     ▼
-Extract available resolutions
+提取可用分辨率列表
 ┌──────────────────────────┐
 │ streams:                  │
 │   [0] 640x360   (800kbps)│
@@ -399,153 +394,151 @@ Extract available resolutions
 └──────────────────────────┘
     │
     ▼
-UI dropdown displays
+UI 下拉菜单显示
 ┌──────────────────┐
-│ ▼ Highest        │
+│ ▼ 最高分辨率      │
 │   640x360        │
 │   1280x720       │
 │   1920x1080      │
 └──────────────────┘
     │
-    ▼ User selects (or default highest)
+    ▼ 用户选择（或默认最高）
 ┌──────────────────────────┐
-│ Match by name to bitrate  │
+│ 按名称匹配对应码率流        │
 │ selected_idx = ...        │
 │ stream_url = streams[idx] │
 └──────────────────────────┘
     │
     ▼
-Fetch selected bitrate's Media Playlist
+获取选定码率的 Media Playlist
     │
     ▼
-Continue download flow...
+继续下载流程...
 ```
 
-### 5.2 Per-task Independence
+### 5.2 每任务独立
 
-Each task card has its own resolution dropdown, independent of others:
+每个任务卡片有自己的分辨率下拉菜单，互不影响：
 
 ```
-Task A: [1080p ▼]  ← independent
-Task B: [720p  ▼]  ← independent
-Task C: [Highest ▼] ← independent
+任务 A: [1080p ▼]  ← 独立选择
+任务 B: [720p  ▼]  ← 独立选择
+任务 C: [最高分辨率 ▼]  ← 独立选择
 ```
 
 ---
 
-## 6. Proxy Support
+## 6. 代理支持
 
-### 6.1 Configuration
+### 6.1 配置方式
 
 ```
-User enters proxy address in GUI
+用户在 GUI 输入代理地址
     │
     ▼
 ┌──────────────────────────┐
-│ Proxy address:            │
+│ 代理地址:                 │
 │ http://127.0.0.1:7890    │
 │ socks5://127.0.0.1:1080  │
 └──────────────────────────┘
     │
-    ▼ Auto-saved to config.json
+    ▼ 自动保存到 config.json
 ```
 
-### 6.2 Where Proxy is Applied
+### 6.2 代理应用位置
 
-Proxy configuration is passed to all network requests:
+代理配置会传递到所有网络请求：
 
 ```
 proxy = "http://127.0.0.1:7890"
     │
-    ├──→ fetch_m3u8()         Fetch M3U8 file
-    ├──→ download_segment()   Download TS segments
-    ├──→ fetch_key()          Fetch AES key
-    └──→ merge/decrypt        Local operations, no network
+    ├──→ fetch_m3u8()         获取 M3U8 文件
+    ├──→ download_segment()   下载 TS 分片
+    ├──→ fetch_key()          获取 AES 密钥
+    └──→ 合并/解密            本地操作，不经过网络
 
-Every requests call configures:
+每个 requests 请求都配置：
 proxies = {
     "http": proxy,
     "https": proxy
 }
 ```
 
-### 6.3 Request Chain
+### 6.3 请求链路
 
 ```
-App → HTTP Proxy Server → Target Server
+应用 → HTTP 代理服务器 → 目标服务器
   │         │                │
-  │    Proxy forwards    Proxy forwards
-  │    request           response
+  │    代理转发请求       代理转发响应
   │         │                │
   ◄─────────◄────────────────◄
 ```
 
 ---
 
-## 7. Custom Headers
+## 7. 自定义请求头
 
-### 7.1 Referer Anti-hotlinking
+### 7.1 Referer 防盗链
 
-Many video servers check the Referer header to prevent hotlinking:
+很多视频服务器通过检查 Referer 头来判断请求来源，防止盗链：
 
 ```
-Server check:
+服务器检查：
 ┌──────────────────────────────────────┐
 │  Referer: https://example.com/video  │
 │           ↑                          │
-│  Must match expected domain,         │
-│  otherwise returns 403               │
+│  必须匹配预期的域名，否则返回 403       │
 └──────────────────────────────────────┘
 
-App configuration:
-┌──────────────────────────┐
-│ Referer origin page:      │
-│ https://example.com/video │ ← User fills in
-└──────────────────────────┘
+应用配置：
+┌──────────────────┐
+│ Referer 来源页:   │
+│ https://example.com/video │ ← 用户填写
+└──────────────────┘
     │
     ▼
-All HTTP requests automatically include:
+所有 HTTP 请求自动携带：
 headers = {
     "Referer": "https://example.com/video",
     "User-Agent": "Mozilla/5.0 ..."
 }
 ```
 
-### 7.2 Where Headers are Applied
+### 7.2 应用位置
 
 ```
-User fills in Referer
+用户填写 Referer
     │
     ▼
-Auto-saved to config.json
+自动保存到 config.json
     │
     ▼
-Written to task.custom_headers on task creation
+创建任务时写入 task.custom_headers
     │
-    ├──→ fetch_m3u8()      Sent when fetching M3U8
-    ├──→ download_all()    Sent when downloading segments
-    └──→ fetch_key()       Sent when fetching AES key
+    ├──→ fetch_m3u8()      请求 M3U8 时携带
+    ├──→ download_all()    下载分片时携带
+    └──→ fetch_key()       获取密钥时携带
 ```
 
 ---
 
-## 8. Complete Download Flow
+## 8. 整体下载流程
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Complete Download Flow                     │
+│                      完整下载流程                              │
 └─────────────────────────────────────────────────────────────┘
 
-  User inputs URL
+  用户输入 URL
       │
       ▼
   ┌──────────────┐
-  │ Fetch M3U8   │ ← with retry (5x), proxy, custom headers
+  │ 获取 M3U8 文件 │ ← 带重试（5次）、代理、自定义请求头
   └──────┬───────┘
          │
          ▼
   ┌──────────────────┐
-  │ Parse M3U8       │
+  │ 解析 M3U8 内容    │
   └──────┬───────────┘
          │
     ┌────┴────┐
@@ -554,30 +547,28 @@ Written to task.custom_headers on task creation
   Master   Media
     │         │
     ▼         │
-  Select ─────┘
-  bitrate
+  选择码率 ────┘
     │
     ▼
   ┌──────────────────┐
-  │ Fetch Media       │
+  │ 获取 Media        │
   │ Playlist          │
   └──────┬───────────┘
          │
          ▼
   ┌──────────────────┐
-  │ Parse segment    │
-  │ list + encryption│
+  │ 解析分片列表       │
+  │ + 加密信息         │
   └──────┬───────────┘
          │
          ▼
   ┌──────────────────┐
-  │ Resume check     │ ← Skip already downloaded segments
+  │ 断点续传检查       │ ← 跳过已下载分片
   └──────┬───────────┘
          │
          ▼
   ┌──────────────────────────────────┐
-  │ ThreadPoolExecutor concurrent    │
-  │ download                         │
+  │ ThreadPoolExecutor 并发下载       │
   │                                  │
   │  T1 ──→ segment000.ts           │
   │  T2 ──→ segment001.ts           │
@@ -585,23 +576,23 @@ Written to task.custom_headers on task creation
   │  ...                            │
   │  T20 ──→ segment019.ts          │
   │                                  │
-  │  Per segment:                    │
-  │    1. Check stop/pause signal    │
-  │    2. Stream download to .tmp    │
-  │    3. Atomic rename to .ts       │
-  │    4. Update progress & speed    │
-  │    5. Auto-retry on failure (5x) │
+  │  每个分片：                       │
+  │    1. 检查停止/暂停信号            │
+  │    2. 流式下载到 .tmp             │
+  │    3. 原子重命名为 .ts            │
+  │    4. 更新进度和速度              │
+  │    5. 失败自动重试（最多5次）      │
   └──────┬───────────────────────────┘
          │
          ▼
   ┌──────────────────┐
-  │ AES-128 decrypt  │ ← if encrypted
-  │ (per segment)    │
+  │ AES-128 解密      │ ← 如有加密
+  │ (逐个分片解密)     │
   └──────┬───────────┘
          │
          ▼
   ┌──────────────────┐
-  │ Merge segments   │
+  │ 按顺序合并分片     │
   │ segment000.ts    │
   │ + segment001.ts  │
   │ + segment002.ts  │
@@ -611,19 +602,19 @@ Written to task.custom_headers on task creation
          │
          ▼
   ┌──────────────────┐
-  │ Cleanup temp     │
+  │ 清理临时文件       │
   └──────┬───────────┘
          │
          ▼
-    Task complete ✓
+    任务完成 ✓
 ```
 
 ---
 
-## Module Dependency
+## 模块依赖关系
 
 ```
-                    app.py (GUI main)
+                    app.py (GUI 主程序)
                    ╱    │    ╲
                   ╱     │     ╲
                  ╱      │      ╲
@@ -631,7 +622,7 @@ Written to task.custom_headers on task creation
          │              │              │            │
          └──────────────┴──────────────┴────────────┘
                          │
-                    main.py (CLI entry)
+                    main.py (CLI 入口)
 ```
 
-Each module has a single responsibility and can be used independently or combined.
+每个模块职责单一，可以独立使用，也可以组合使用。
