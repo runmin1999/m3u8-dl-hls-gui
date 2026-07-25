@@ -1,4 +1,4 @@
-# M3U8-DL-HLS-GUI
+# m3u8-dl-hls-gui
 
 [English](README.md) | [中文](README.zh-CN.md)
 

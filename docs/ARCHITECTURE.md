@@ -2,7 +2,7 @@
 
 [English](ARCHITECTURE.md) | [中文](ARCHITECTURE.zh-CN.md)
 
-This document describes the internal workflow and technical principles of each core module in M3U8-DL-HLS-GUI.
+This document describes the internal workflow and technical principles of each core module in m3u8-dl-hls-gui.
 
 ---
 

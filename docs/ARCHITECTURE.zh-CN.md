@@ -2,7 +2,7 @@
 
 [English](ARCHITECTURE.md) | [中文](ARCHITECTURE.zh-CN.md)
 
-本文档详细介绍 M3U8-DL-HLS-GUI 各核心模块的工作流程和技术原理。
+本文档详细介绍 m3u8-dl-hls-gui 各核心模块的工作流程和技术原理。
 
 ---
 
