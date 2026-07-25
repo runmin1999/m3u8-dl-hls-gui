@@ -13,6 +13,7 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from datetime import datetime
 
+import subprocess
 import requests
 
 # 将当前目录加入 sys.path，确保模块导入正常
@@ -657,7 +658,8 @@ class App(ctk.CTk):
         dir_frame.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         self.dir_var = ctk.StringVar(value="")
         ctk.CTkEntry(dir_frame, textvariable=self.dir_var, placeholder_text=get_default_output_dir(), **ek).pack(side="left", fill="x", expand=True)
-        ctk.CTkButton(dir_frame, text="选择", width=50, height=34, font=("", 11), corner_radius=6, fg_color=COLORS["border"], command=self._browse_dir).pack(side="left", padx=(6, 0)); r += 1
+        ctk.CTkButton(dir_frame, text="选择", width=50, height=34, font=("", 11), corner_radius=6, fg_color=COLORS["border"], command=self._browse_dir).pack(side="left", padx=(6, 0))
+        ctk.CTkButton(dir_frame, text="打开", width=50, height=34, font=("", 11), corner_radius=6, fg_color=COLORS["border"], text_color=COLORS["accent"], command=self._open_dir).pack(side="left", padx=(4, 0)); r += 1
 
         # 代理地址 和 线程数（同行显示）
         ctk.CTkLabel(form, text="代理地址", **lk).grid(row=r, column=0, sticky="w")
@@ -725,6 +727,17 @@ class App(ctk.CTk):
         path = filedialog.askdirectory(title="选择保存目录")
         if path:
             self.dir_var.set(path)
+
+    def _open_dir(self):
+        """在系统文件管理器中打开下载目录"""
+        dir_path = self.dir_var.get().strip() or get_default_output_dir()
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path, exist_ok=True)
+        # Windows 使用 os.startfile，跨平台使用 subprocess
+        if sys.platform == "win32":
+            os.startfile(dir_path)
+        else:
+            subprocess.Popen(["xdg-open" if sys.platform == "linux" else "open", dir_path])
 
     def _start_download(self):
         """开始下载：验证输入 → 解析 M3U8 获取分辨率 → 创建任务"""
