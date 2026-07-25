@@ -1,4 +1,4 @@
-"""m3u8 下载工具 - 主入口"""
+"""m3u8 下载工具 - CLI 命令行入口"""
 
 import os
 import sys
@@ -15,6 +15,7 @@ from merger import merge_to_ts
 
 
 def setup_logging(verbose: bool = False):
+    """配置日志输出（verbose 模式输出 DEBUG 级别）"""
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=level,
@@ -37,12 +38,12 @@ def fetch_m3u8(url: str, headers: dict = None, proxy: str = "") -> str:
 
 
 def get_base_url(url: str) -> str:
-    """从完整 URL 中提取基础 URL（去掉最后一段路径）"""
+    """从完整 URL 中提取基础 URL（去掉最后一段路径，用于拼接相对路径）"""
     return url.rsplit("/", 1)[0] + "/"
 
 
 def format_duration(seconds: float) -> str:
-    """格式化时长"""
+    """将秒数格式化为可读的时长字符串（如 1h23m45s）"""
     m, s = divmod(int(seconds), 60)
     h, m = divmod(m, 60)
     if h > 0:
@@ -51,7 +52,7 @@ def format_duration(seconds: float) -> str:
 
 
 def print_progress(completed: int, total: int):
-    """打印下载进度（每 100 个分片或完成时输出一次）"""
+    """打印下载进度（每 100 个分片或完成时输出一次，避免刷屏）"""
     if completed % 100 == 0 or completed == total:
         ratio = completed / total if total > 0 else 0
         percent = ratio * 100
@@ -60,7 +61,7 @@ def print_progress(completed: int, total: int):
 
 
 def get_default_output_dir() -> str:
-    """获取默认输出目录（桌面）"""
+    """获取默认输出目录（优先使用桌面，否则使用当前目录）"""
     desktop = os.path.join(os.path.expanduser("~"), "Desktop")
     if os.path.exists(desktop):
         return desktop
@@ -79,7 +80,9 @@ def download_video(
     logger: logging.Logger = None,
 ) -> str:
     """
-    下载单个 m3u8 视频
+    下载单个 m3u8 视频（完整流程）
+
+    流程：获取m3u8 → 解析 → 选择码率 → 下载分片 → 解密 → 合并 → 清理
 
     Returns:
         最终输出文件路径
@@ -94,7 +97,7 @@ def download_video(
     if not output_name:
         output_name = "output.ts"
 
-    # 如果 output_name 是相对路径，则拼接输出目录
+    # 处理相对路径和绝对路径
     if not os.path.isabs(output_name):
         output_path = os.path.join(output_dir, output_name)
     else:
@@ -103,22 +106,24 @@ def download_video(
     temp_dir = os.path.join(os.path.dirname(output_path), ".m3u8_temp")
 
     try:
-        # 1. 获取并解析 m3u8
+        # 步骤1：获取并解析 m3u8 文件
         logger.info(f"获取 m3u8: {url}")
         content = fetch_m3u8(url, custom_headers, proxy)
         base_url = get_base_url(url)
         playlist = parse_m3u8(content, base_url)
 
-        # 2. 如果是 master playlist，选择码率流
+        # 步骤2：如果是 Master Playlist，选择码率流
         if playlist.is_master:
             if not playlist.streams:
                 raise RuntimeError("master playlist 中没有找到码率流")
 
+            # 列出所有可用码率
             logger.info("可用的码率流:")
             for i, stream in enumerate(playlist.streams):
                 logger.info(f"  [{i}] {stream.name} ({stream.bandwidth}bps)")
 
             if stream_index >= 0 and stream_index < len(playlist.streams):
+                # 用户指定了码率索引
                 selected = stream_index
             else:
                 # 默认选择最高码率
@@ -126,24 +131,26 @@ def download_video(
                              key=lambda i: playlist.streams[i].bandwidth)
                 logger.info(f"自动选择最高码率: [{selected}]")
 
+            # 获取选定码率的 Media Playlist
             stream_url = playlist.streams[selected].url
             logger.info(f"获取 media playlist: {stream_url}")
             content = fetch_m3u8(stream_url, custom_headers, proxy)
             base_url = get_base_url(stream_url)
             playlist = parse_m3u8(content, base_url)
 
-        # 3. 检查分片
+        # 步骤3：验证分片列表
         if not playlist.segments:
             raise RuntimeError("没有找到 TS 分片，请检查 m3u8 地址是否正确")
 
         total_duration = playlist.total_duration
         logger.info(f"共 {len(playlist.segments)} 个分片，总时长 {format_duration(total_duration)}")
 
+        # 检测是否需要解密
         has_encryption = any(s.encryption_method for s in playlist.segments)
         if has_encryption:
             logger.info("检测到 AES-128 加密，下载后将自动解密")
 
-        # 4. 下载分片
+        # 步骤4：多线程下载所有分片
         logger.info(f"临时目录: {temp_dir}")
         ts_files = download_all(
             playlist.segments,
@@ -157,13 +164,13 @@ def download_video(
         if not ts_files:
             raise RuntimeError("没有成功下载任何分片")
 
-        # 5. 解密（如果需要）
+        # 步骤5：AES-128 解密（如需要）
         if has_encryption:
             logger.info("正在解密分片...")
             ts_files = decrypt_files(ts_files, playlist.segments, custom_headers, proxy)
             logger.info("解密完成")
 
-        # 6. 合并为 TS
+        # 步骤6：合并所有分片为一个 TS 文件
         logger.info("正在合并分片...")
         final_path = merge_to_ts(ts_files, output_path)
         logger.info(f"下载完成: {final_path}")
@@ -171,7 +178,7 @@ def download_video(
         return final_path
 
     finally:
-        # 7. 清理临时文件（无论成功或失败都清理）
+        # 步骤7：清理临时文件（无论成功或失败都执行）
         if not keep and os.path.exists(temp_dir):
             try:
                 shutil.rmtree(temp_dir)
@@ -187,7 +194,7 @@ def parse_batch_file(file_path: str) -> list:
     文件格式：
     - 每行一个 URL
     - 可选：URL 后跟空格和输出文件名
-    - 以 # 开头的行为注释
+    - 以 # 开头的行为注释，会被跳过
 
     示例：
     https://example.com/video1.m3u8 电影1.ts
@@ -198,13 +205,15 @@ def parse_batch_file(file_path: str) -> list:
     with open(file_path, "r", encoding="utf-8") as f:
         for line_num, line in enumerate(f, 1):
             line = line.strip()
+            # 跳过空行和注释行
             if not line or line.startswith("#"):
                 continue
 
-            parts = line.split(None, 1)
+            parts = line.split(None, 1)  # 按空白符分割，最多分成两部分
             url = parts[0]
             name = parts[1] if len(parts) > 1 else ""
 
+            # 验证 URL 格式
             if not url.startswith("http"):
                 logger.warning(f"第 {line_num} 行: 无效的 URL，跳过")
                 continue
@@ -215,6 +224,7 @@ def parse_batch_file(file_path: str) -> list:
 
 
 def main():
+    """CLI 主入口：解析命令行参数并执行下载"""
     parser = argparse.ArgumentParser(
         description="m3u8 视频下载工具",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -257,14 +267,14 @@ def main():
     global logger
     logger = logging.getLogger(__name__)
 
-    # 解析自定义请求头
+    # 解析自定义请求头（格式：Key=Value）
     custom_headers = {}
     for h in args.headers:
         if "=" in h:
             k, v = h.split("=", 1)
             custom_headers[k.strip()] = v.strip()
 
-    # 批量下载模式
+    # ── 批量下载模式 ──
     if args.file:
         if not os.path.isfile(args.file):
             logger.error(f"批量下载文件不存在: {args.file}")
@@ -288,7 +298,7 @@ def main():
             logger.info(f"\n{'='*50}")
             logger.info(f"[{i}/{len(tasks)}] 开始下载: {url}")
 
-            # 确定输出文件名
+            # 确定输出文件名（优先使用批量文件中的名称，其次使用命令行参数）
             if name:
                 output_name = name
             elif args.output:
@@ -316,7 +326,7 @@ def main():
         logger.info(f"\n{'='*50}")
         logger.info(f"批量下载完成: 成功 {success_count}/{len(tasks)}")
 
-    # 单个下载模式
+    # ── 单个下载模式 ──
     elif args.url:
         output_name = args.output or "output.ts"
         output_dir = args.dir if args.dir else get_default_output_dir()
