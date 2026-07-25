@@ -2,91 +2,80 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-A desktop M3U8 video downloader built with Python and CustomTkinter, featuring AES-128 decryption, multi-threaded concurrent downloads, resume support, and resolution selection.
+> A high-performance desktop M3U8/HLS video downloader with a modern GUI, built with Python and CustomTkinter.
+
+## Highlights
+
+- Multi-threaded concurrent downloads with connection pool optimization
+- AES-128 transparent decryption
+- Pause / Resume / Stop with full state persistence
+- Per-task resolution selection
+- One-click exe packaging via PyInstaller
 
 ## Features
 
-- **M3U8 Parsing** — Supports both Master Playlists (multi-bitrate) and Media Playlists, automatically parses TS segment lists
-- **Multi-threaded Downloads** — Connection-pool-based concurrent download engine, default 20 threads, configurable 1-100
-- **AES-128 Decryption** — Auto-detects encrypted segments and decrypts them, with IV vector support and key caching
-- **Resume Support** — Continue downloads from already-downloaded segments after stopping; supports pause/resume
-- **Resolution Selection** — Per-task resolution picker with auto-select highest resolution option
-- **Real-time Progress** — Progress bar, segment count, and download speed displayed in real-time
-- **Proxy Support** — HTTP/HTTPS proxy configuration
-- **Custom Headers** — Support for Referer and other custom HTTP headers
-- **Auto-save Settings** — Workers, proxy, Referer and other settings are persisted automatically
-- **Logging System** — All operations logged to `Logs/` folder with timestamped filenames
-- **PyInstaller Packaging** — Can be packaged as a standalone .exe, no Python installation required
-- **Filename Sanitization** — Automatically removes Windows-illegal characters to prevent file errors
+| Feature | Description |
+|---------|-------------|
+| **M3U8 Parsing** | Supports Master Playlist (multi-bitrate) and Media Playlist; auto-resolves relative URLs |
+| **Multi-threaded Download** | Connection-pool-based engine, 1-100 configurable workers (default 20) |
+| **AES-128 Decryption** | Auto-detects `#EXT-X-KEY`, decrypts with IV support and key caching |
+| **Resume Support** | Atomic file writes ensure safe restart; tracks downloaded segment indices |
+| **Resolution Selection** | Per-task dropdown; auto-selects highest bitrate by default |
+| **Real-time Progress** | Progress bar, segment counter, and live download speed |
+| **Proxy Support** | HTTP / HTTPS / SOCKS proxy for all network requests |
+| **Custom Headers** | Referer and arbitrary headers for anti-hotlinking |
+| **Auto-save Settings** | Workers, proxy, and Referer persisted to `config.json` |
+| **Logging** | Timestamped logs in `Logs/` directory |
+| **PyInstaller** | Package as standalone `.exe`, no Python needed |
+| **Filename Sanitization** | Auto-removes Windows-illegal characters |
 
-## Project Structure
+## Screenshots
 
-```
-missav_m3u8_gui/
-├── app.py              # Main application (CustomTkinter GUI)
-├── main.py             # CLI entry point
-├── m3u8_parser.py      # M3U8 playlist parser
-├── downloader.py       # Multi-threaded download engine
-├── decryptor.py        # AES-128 decryption module
-├── merger.py           # TS segment merger
-├── requirements.txt    # Python dependencies
-├── start.bat           # Windows one-click launcher
-├── config.json         # User config (auto-generated)
-├── Logs/               # Log directory (auto-generated)
-└── Downloads/          # Default download directory (auto-generated)
-```
+> *Coming soon*
 
-## Installation & Running
+## Quick Start
 
-### Requirements
+### Prerequisites
 
 - Python 3.8+
 - Windows (recommended) / macOS / Linux
 
-### Option 1: Run Directly
+### 1. Run from Source
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
-
-# Launch GUI
 python app.py
 ```
 
-### Option 2: Use start.bat (Windows)
+### 2. Windows One-Click
 
-Double-click `start.bat` to auto-activate the conda environment, install dependencies, and launch.
+Double-click `start.bat` — auto-activates conda, installs deps, and launches.
 
-### Option 3: Package as exe
+### 3. Package as exe
 
 ```bash
-# Install PyInstaller
 pip install pyinstaller
-
-# Package
-pyinstaller --onefile --windowed --name "missav_m3u8_GUI" --clean app.py
+pyinstaller --onefile --windowed --name "m3u8-dl-hls-gui" --clean app.py
 ```
 
-The generated exe is in the `dist/` directory.
+Output: `dist/m3u8-dl-hls-gui.exe`
 
 ## Usage
 
-### GUI Mode
+### GUI
 
 1. Launch `python app.py`
 2. Fill in the left panel:
-   - **M3U8 URL**: Full m3u8 URL
-   - **Referer**: Anti-hotlinking page URL (optional)
-   - **Filename**: Output filename (default: output.ts)
-   - **Save Directory**: Click "Browse" to select a directory
-   - **Proxy**: e.g. `http://127.0.0.1:7890` (optional)
-   - **Workers**: Concurrent download threads (default: 20)
-3. Click "Start Download"
-4. In the right task list you can:
-   - Switch resolution via the dropdown menu
-   - Pause / Resume / Stop / Delete tasks
+   - **M3U8 URL** — full m3u8 link
+   - **Referer** — anti-hotlinking origin page (optional)
+   - **Filename** — output name (default: `output.ts`)
+   - **Save Directory** — click Browse to pick, click Open to reveal in explorer
+   - **Proxy** — e.g. `http://127.0.0.1:7890` (optional)
+   - **Workers** — concurrency (default: 20)
+3. Click **Start Download**
+4. Right panel — switch resolution, pause / resume / stop / delete tasks
 
-### CLI Mode
+### CLI
 
 ```bash
 # Single download
@@ -97,50 +86,45 @@ python main.py https://example.com/video.m3u8 -o movie.ts -d D:/Videos
 python main.py -f urls.txt -d D:/Downloads
 ```
 
-Batch download file format (`urls.txt`):
+Batch file format (`urls.txt`):
 
 ```
 https://example.com/video1.m3u8 Movie1.ts
 https://example.com/video2.m3u8 Movie2.ts
-# This is a comment line
+# comment lines start with #
 ```
 
 ### CLI Arguments
 
-| Argument | Description |
-|----------|-------------|
-| `url` | m3u8 file URL |
-| `-f, --file` | Batch download file |
-| `-o, --output` | Output filename |
-| `-d, --dir` | Output directory (default: Desktop) |
-| `-w, --workers` | Concurrency (default: 20) |
-| `-p, --proxy` | Proxy address |
-| `-k, --keep` | Keep temporary TS segments |
-| `-s, --stream` | Select bitrate stream index |
-| `-v, --verbose` | Verbose logging |
-| `--headers` | Custom headers `Key=Value` |
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `url` | m3u8 URL | — |
+| `-f, --file` | Batch download file | — |
+| `-o, --output` | Output filename | `output.ts` |
+| `-d, --dir` | Output directory | Desktop |
+| `-w, --workers` | Concurrency | `20` |
+| `-p, --proxy` | Proxy address | — |
+| `-k, --keep` | Keep temp TS segments | `false` |
+| `-s, --stream` | Bitrate stream index | auto (highest) |
+| `-v, --verbose` | Verbose logging | `false` |
+| `--headers` | Custom headers `Key=Value` | — |
 
-## Technical Details
+## Architecture
 
-### Download Flow
+```
+app.py (GUI)          main.py (CLI)
+    │                      │
+    ├── m3u8_parser.py     ├── m3u8_parser.py
+    ├── downloader.py      ├── downloader.py
+    ├── decryptor.py       ├── decryptor.py
+    └── merger.py          └── merger.py
+```
 
-1. Fetch and parse the M3U8 playlist
-2. If Master Playlist, auto-select highest bitrate (or manually choose)
-3. Concurrently download all TS segments (with connection pool optimization)
-4. Detect AES-128 encryption and auto-decrypt
-5. Merge all segments into a complete TS file in order
-6. Clean up temporary files
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed flow diagrams and technical deep-dive.
 
-### Error Handling
+## Configuration
 
-- SSL errors auto-retry (up to 5 times, exponential backoff)
-- Connection timeout auto-retry
-- Filename auto-sanitization for Windows-illegal characters
-- Task state persistence; recoverable after program restart
-
-### Config File
-
-`config.json` auto-saves the following settings:
+`config.json` (auto-generated):
 
 ```json
 {
@@ -150,17 +134,28 @@ https://example.com/video2.m3u8 Movie2.ts
 }
 ```
 
-## Logging
-
-All operations are logged in the `Logs/` directory. Filename format:
+## Project Structure
 
 ```
-2025-01-15_14-30-25-123.log
+m3u8-dl-hls-gui/
+├── app.py              # Main application (CustomTkinter GUI)
+├── main.py             # CLI entry point
+├── m3u8_parser.py      # M3U8 playlist parser
+├── downloader.py       # Multi-threaded download engine
+├── decryptor.py        # AES-128 decryption module
+├── merger.py           # TS segment merger
+├── requirements.txt    # Python dependencies
+├── start.bat           # Windows one-click launcher
+├── docs/
+│   └── ARCHITECTURE.md # Technical architecture docs
+├── config.json         # User config (auto-generated)
+├── Logs/               # Log directory (auto-generated)
+└── Downloads/          # Default download directory (auto-generated)
 ```
 
 ## Acknowledgments
 
-The core modules in this project — M3U8 parsing, multi-threaded downloading, AES-128 decryption, and TS merging — are based on the [sdlw7757/M3U8-down](https://github.com/sdlw7757/M3U8-down) project. The original project uses a Flask + WebSocket web interface. This project rewrites the GUI layer as a CustomTkinter desktop application and adds features such as PyInstaller packaging, resolution selection, and auto-save settings.
+Core modules (M3U8 parsing, multi-threaded downloading, AES-128 decryption, TS merging) are based on [sdlw7757/M3U8-down](https://github.com/sdlw7757/M3U8-down). The original project uses a Flask + WebSocket web interface. This project rewrites the GUI as a CustomTkinter desktop application and adds PyInstaller packaging, resolution selection, and auto-save settings.
 
 ## License
 

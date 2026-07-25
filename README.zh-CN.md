@@ -1,40 +1,39 @@
 # M3U8-DL-HLS-GUI
 
-基于 Python + CustomTkinter 构建的 M3U8 视频下载桌面工具，支持 AES-128 解密、多线程并发下载、断点续传、分辨率选择等功能。
+[English](README.md) | [中文](README.zh-CN.md)
+
+> 基于 Python + CustomTkinter 构建的高性能 M3U8/HLS 视频下载桌面工具。
+
+## 亮点
+
+- 多线程并发下载 + 连接池优化
+- AES-128 透明解密
+- 暂停 / 继续 / 停止，完整状态持久化
+- 每任务独立分辨率选择
+- 一键 PyInstaller 打包为 exe
 
 ## 功能特性
 
-- **M3U8 解析** — 支持 Master Playlist（多码率）和 Media Playlist，自动识别并解析 TS 分片列表
-- **多线程下载** — 基于连接池的并发下载引擎，默认 20 线程，可自定义 1-100
-- **AES-128 解密** — 自动检测加密分片并解密，支持 IV 向量和密钥缓存
-- **断点续传** — 任务停止后可从已下载分片处继续，支持暂停/恢复
-- **分辨率选择** — 每个任务独立选择分辨率，支持最高分辨率自动选择
-- **实时进度** — 进度条、分片计数、下载速度实时显示
-- **代理支持** — HTTP/HTTPS 代理配置
-- **自定义请求头** — 支持 Referer 等自定义 Header
-- **配置自动保存** — 线程数、代理、Referer 等设置自动持久化
-- **日志系统** — 所有操作记录到 `Logs/` 文件夹，带时间戳文件名
-- **PyInstaller 打包** — 支持打包为独立 exe 文件，无需安装 Python
-- **文件名安全** — 自动清理 Windows 非法字符，防止文件名导致的错误
+| 功能 | 说明 |
+|------|------|
+| **M3U8 解析** | 支持 Master Playlist（多码率）和 Media Playlist，自动拼接相对 URL |
+| **多线程下载** | 基于连接池的并发引擎，1-100 线程可调（默认 20） |
+| **AES-128 解密** | 自动检测 `#EXT-X-KEY` 并解密，支持 IV 向量和密钥缓存 |
+| **断点续传** | 原子写入确保文件完整，记录已下载分片索引 |
+| **分辨率选择** | 每任务独立下拉菜单，默认自动选择最高码率 |
+| **实时进度** | 进度条、分片计数、实时下载速度 |
+| **代理支持** | HTTP / HTTPS / SOCKS 代理，覆盖所有网络请求 |
+| **自定义请求头** | Referer 及任意自定义 Header，应对防盗链 |
+| **配置自动保存** | 线程数、代理、Referer 自动持久化到 `config.json` |
+| **日志系统** | 带时间戳的日志文件，记录在 `Logs/` 目录 |
+| **PyInstaller 打包** | 可打包为独立 `.exe`，无需安装 Python |
+| **文件名安全** | 自动清理 Windows 非法字符，防止文件错误 |
 
-## 项目结构
+## 截图
 
-```
-missav_m3u8_gui/
-├── app.py              # 主程序（CustomTkinter GUI）
-├── main.py             # CLI 命令行入口
-├── m3u8_parser.py      # M3U8 播放列表解析模块
-├── downloader.py       # 多线程下载引擎
-├── decryptor.py        # AES-128 解密模块
-├── merger.py           # TS 分片合并模块
-├── requirements.txt    # Python 依赖
-├── start.bat           # Windows 一键启动脚本
-├── config.json         # 用户配置（自动生成）
-├── Logs/               # 日志目录（自动生成）
-└── Downloads/          # 默认下载目录（自动生成）
-```
+> *即将添加*
 
-## 安装与运行
+## 快速开始
 
 ### 环境要求
 
@@ -44,45 +43,37 @@ missav_m3u8_gui/
 ### 方式一：直接运行
 
 ```bash
-# 安装依赖
 pip install -r requirements.txt
-
-# 启动 GUI
 python app.py
 ```
 
-### 方式二：使用 start.bat（Windows）
+### 方式二：Windows 一键启动
 
-双击 `start.bat`，自动激活 conda 环境并安装依赖后启动。
+双击 `start.bat`，自动激活 conda 环境、安装依赖并启动。
 
 ### 方式三：打包为 exe
 
 ```bash
-# 安装 PyInstaller
 pip install pyinstaller
-
-# 打包
-pyinstaller --onefile --windowed --name "missav_m3u8_GUI" --clean app.py
+pyinstaller --onefile --windowed --name "m3u8-dl-hls-gui" --clean app.py
 ```
 
-生成的 exe 位于 `dist/` 目录下。
+输出：`dist/m3u8-dl-hls-gui.exe`
 
 ## 使用方法
 
 ### GUI 模式
 
 1. 启动 `python app.py`
-2. 在左侧填写：
-   - **M3U8 链接地址**：完整的 m3u8 URL
-   - **Referer 来源页**：防盗链页面地址（可选）
-   - **保存文件名**：输出文件名（默认 output.ts）
-   - **保存目录**：点击"选择"按钮浏览目录，点击"打开"可在文件管理器中打开目录
-   - **代理地址**：如 `http://127.0.0.1:7890`（可选）
-   - **线程数**：并发下载线程数（默认 20）
-3. 点击"开始下载"
-4. 右侧任务列表中可：
-   - 通过下拉菜单切换分辨率
-   - 暂停/继续/停止/删除任务
+2. 左侧面板填写：
+   - **M3U8 链接地址** — 完整的 m3u8 URL
+   - **Referer 来源页** — 防盗链页面地址（可选）
+   - **保存文件名** — 输出文件名（默认 `output.ts`）
+   - **保存目录** — 点击"选择"浏览目录，点击"打开"在文件管理器中打开
+   - **代理地址** — 如 `http://127.0.0.1:7890`（可选）
+   - **线程数** — 并发下载线程数（默认 20）
+3. 点击 **开始下载**
+4. 右侧任务列表 — 切换分辨率、暂停 / 继续 / 停止 / 删除任务
 
 ### CLI 模式
 
@@ -100,45 +91,40 @@ python main.py -f urls.txt -d D:/Downloads
 ```
 https://example.com/video1.m3u8 电影1.ts
 https://example.com/video2.m3u8 电影2.ts
-# 这是注释行
+# 以 # 开头的是注释行
 ```
 
 ### CLI 参数
 
-| 参数 | 说明 |
-|------|------|
-| `url` | m3u8 文件 URL |
-| `-f, --file` | 批量下载文件 |
-| `-o, --output` | 输出文件名 |
-| `-d, --dir` | 输出目录（默认桌面） |
-| `-w, --workers` | 并发数（默认 20） |
-| `-p, --proxy` | 代理地址 |
-| `-k, --keep` | 保留临时 TS 分片 |
-| `-s, --stream` | 选择码率流索引 |
-| `-v, --verbose` | 详细日志 |
-| `--headers` | 自定义请求头 `Key=Value` |
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `url` | m3u8 文件 URL | — |
+| `-f, --file` | 批量下载文件 | — |
+| `-o, --output` | 输出文件名 | `output.ts` |
+| `-d, --dir` | 输出目录 | 桌面 |
+| `-w, --workers` | 并发数 | `20` |
+| `-p, --proxy` | 代理地址 | — |
+| `-k, --keep` | 保留临时 TS 分片 | `false` |
+| `-s, --stream` | 选择码率流索引 | 自动（最高） |
+| `-v, --verbose` | 详细日志 | `false` |
+| `--headers` | 自定义请求头 `Key=Value` | — |
 
-## 技术细节
+## 技术架构
 
-### 下载流程
+```
+app.py (GUI)          main.py (CLI)
+    │                      │
+    ├── m3u8_parser.py     ├── m3u8_parser.py
+    ├── downloader.py      ├── downloader.py
+    ├── decryptor.py       ├── decryptor.py
+    └── merger.py          └── merger.py
+```
 
-1. 获取并解析 M3U8 播放列表
-2. 如果是 Master Playlist，自动选择最高码率（或手动选择）
-3. 并发下载所有 TS 分片（带连接池优化）
-4. 检测 AES-128 加密并自动解密
-5. 按顺序合并所有分片为完整 TS 文件
-6. 清理临时文件
+详细流程图和技术原理请参阅 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
-### 错误处理
+## 配置文件
 
-- SSL 错误自动重试（最多 5 次，指数退避）
-- 连接超时自动重试
-- 文件名自动清理 Windows 非法字符
-- 任务状态持久化，程序重启后可恢复
-
-### 配置文件
-
-`config.json` 自动保存以下设置：
+`config.json`（自动生成）：
 
 ```json
 {
@@ -148,17 +134,28 @@ https://example.com/video2.m3u8 电影2.ts
 }
 ```
 
-## 日志
-
-所有操作记录在 `Logs/` 目录下，文件名格式：
+## 项目结构
 
 ```
-2025-01-15_14-30-25-123.log
+m3u8-dl-hls-gui/
+├── app.py              # 主程序（CustomTkinter GUI）
+├── main.py             # CLI 命令行入口
+├── m3u8_parser.py      # M3U8 播放列表解析模块
+├── downloader.py       # 多线程下载引擎
+├── decryptor.py        # AES-128 解密模块
+├── merger.py           # TS 分片合并模块
+├── requirements.txt    # Python 依赖
+├── start.bat           # Windows 一键启动脚本
+├── docs/
+│   └── ARCHITECTURE.md # 技术架构文档
+├── config.json         # 用户配置（自动生成）
+├── Logs/               # 日志目录（自动生成）
+└── Downloads/          # 默认下载目录（自动生成）
 ```
 
 ## 致谢
 
-本项目的 M3U8 解析、多线程下载、AES-128 解密、TS 合并等核心模块基于 [sdlw7757/M3U8-down](https://github.com/sdlw7757/M3U8-down) 项目开发。原项目采用 Flask + WebSocket 的网页界面，本项目在此基础上将 GUI 层重写为 CustomTkinter 桌面应用，并新增了 PyInstaller 打包、分辨率选择、配置自动保存等功能。
+核心模块（M3U8 解析、多线程下载、AES-128 解密、TS 合并）基于 [sdlw7757/M3U8-down](https://github.com/sdlw7757/M3U8-down) 开发。原项目采用 Flask + WebSocket 网页界面，本项目将 GUI 层重写为 CustomTkinter 桌面应用，并新增 PyInstaller 打包、分辨率选择、配置自动保存等功能。
 
 ## 许可证
 
