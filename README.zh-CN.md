@@ -1,4 +1,4 @@
-# MISSAV M3U8 视频下载器
+# M3U8-DL-HLS-GUI
 
 基于 Python + CustomTkinter 构建的 M3U8 视频下载桌面工具，支持 AES-128 解密、多线程并发下载、断点续传、分辨率选择等功能。
 

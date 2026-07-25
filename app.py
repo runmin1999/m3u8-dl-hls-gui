@@ -1,4 +1,4 @@
-"""MISSAV M3U8 GUI Downloader v0.11 - CustomTkinter 桌面应用"""
+"""M3U8-DL-HLS-GUI v0.11 - CustomTkinter 桌面应用"""
 
 import os
 import sys
@@ -597,7 +597,7 @@ class App(ctk.CTk):
 
     def __init__(self):
         super().__init__()
-        self.title("M3U8 视频下载器 v0.11")
+        self.title("M3U8-DL-HLS-GUI v0.11")
         self.geometry("900x620")
         self.minsize(750, 500)
         self.configure(fg_color=COLORS["bg"])
