@@ -576,34 +576,31 @@ class TaskCard(ctk.CTkFrame):
         self._hide_context_menu()
         import tkinter as tk
         menu = tk.Toplevel(self)
-        menu.overrideredirect(True)  # 无标题栏
+        menu.overrideredirect(True)
         menu.attributes("-topmost", True)
         menu.configure(bg=COLORS["border"], highlightthickness=0)
 
-        # 菜单内容容器（带圆角模拟）
         inner = ctk.CTkFrame(menu, fg_color=COLORS["card"], corner_radius=8)
         inner.pack(padx=1, pady=1)
 
-        # 菜单项
         items = [
             ("复制链接", COLORS["text"], COLORS["accent"], self._copy_url),
             ("打开下载目录", COLORS["text"], COLORS["accent"], self._open_task_dir),
-            None,  # 分隔线
+            None,
             ("删除任务", COLORS["error"], "#3d1a1a", lambda: self.on_delete(self.task.task_id)),
         ]
 
         for item in items:
             if item is None:
-                # 分隔线
-                sep = ctk.CTkFrame(inner, fg_color=COLORS["border"], height=1)
-                sep.pack(fill="x", padx=8, pady=4)
+                sep = ctk.CTkFrame(inner, fg_color="#3a3a4a", height=2)
+                sep.pack(fill="x", padx=12, pady=4)
             else:
                 label, fg, hover_bg, cmd = item
-                btn = ctk.CTkButton(inner, text=label, font=("", 12), height=32,
+                btn = ctk.CTkButton(inner, text=label, font=("", 12), width=160, height=30,
                                     fg_color="transparent", hover_color=hover_bg,
                                     text_color=fg, corner_radius=4, anchor="w",
                                     command=lambda c=cmd: (self._hide_context_menu(), c()))
-                btn.pack(fill="x", padx=4, pady=1)
+                btn.pack(padx=4, pady=1)
 
         # 计算菜单位置
         x = event.x_root
