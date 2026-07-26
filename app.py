@@ -592,11 +592,11 @@ class TaskCard(ctk.CTkFrame):
 
         for item in items:
             if item is None:
-                sep = ctk.CTkFrame(inner, fg_color="#555568", height=2)
-                sep.pack(fill="x", padx=16, pady=4)
+                sep = ctk.CTkFrame(inner, fg_color="#ffffff", height=1)
+                sep.pack(fill="x", padx=12, pady=4)
             else:
                 label, fg, hover_bg, cmd = item
-                btn = ctk.CTkButton(inner, text=label, font=("", 12), width=180, height=30,
+                btn = ctk.CTkButton(inner, text=label, font=("", 12), width=120, height=30,
                                     fg_color="transparent", hover_color=hover_bg,
                                     text_color=fg, corner_radius=4, anchor="w",
                                     command=lambda c=cmd: (self._hide_context_menu(), c()))
