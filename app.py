@@ -565,15 +565,16 @@ class TaskCard(ctk.CTkFrame):
         """创建右键上下文菜单"""
         import tkinter as tk
         self._context_menu = tk.Menu(self, tearoff=0,
-                                     bg="#1a1a24", fg=COLORS["text"],
-                                     activebackground=COLORS["accent"], activeforeground=COLORS["text"],
-                                     activeborderwidth=0, borderwidth=0,
-                                     font=("", 11), relief="flat")
-        self._context_menu.add_command(label="📋 复制链接", command=self._copy_url)
-        self._context_menu.add_command(label="📂 打开下载目录", command=self._open_task_dir)
+                                     bg="#1e1e2e", fg="#cdd6f4",
+                                     activebackground="#45475a", activeforeground="#cdd6f4",
+                                     activeborderwidth=0, borderwidth=1,
+                                     relief="flat", font=("", 12),
+                                     selectcolor="#45475a", postcommand=self._on_menu_show)
+        self._context_menu.add_command(label="  复制链接  ", command=self._copy_url, compound="left")
+        self._context_menu.add_command(label="  打开下载目录  ", command=self._open_task_dir, compound="left")
         self._context_menu.add_separator()
-        self._context_menu.add_command(label="🗑️ 删除任务", command=lambda: self.on_delete(self.task.task_id),
-                                       foreground=COLORS["error"])
+        self._context_menu.add_command(label="  删除任务  ", command=lambda: self.on_delete(self.task.task_id),
+                                       foreground="#f38ba8", activeforeground="#f38ba8")
 
     def _bind_right_click(self, widget):
         """递归给控件及所有子控件绑定右键菜单"""
@@ -587,6 +588,10 @@ class TaskCard(ctk.CTkFrame):
             self._context_menu.tk_popup(event.x_root, event.y_root)
         finally:
             self._context_menu.grab_release()
+
+    def _on_menu_show(self):
+        """菜单显示前动态更新状态"""
+        pass
 
     def _copy_url(self):
         """复制任务的 M3U8 链接到剪贴板"""
