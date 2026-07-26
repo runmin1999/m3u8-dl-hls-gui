@@ -592,14 +592,21 @@ class TaskCard(ctk.CTkFrame):
 
         for item in items:
             if item is None:
-                sep = ctk.CTkFrame(inner, fg_color="#ffffff", height=1)
+                # 分割线：用 Canvas 画一条细线
+                sep = ctk.CTkCanvas(inner, height=2, bg=COLORS["border"], highlightthickness=0)
                 sep.pack(fill="x", padx=12, pady=4)
+                sep.create_line(0, 1, 200, 1, fill="#ffffff", width=1)
             else:
                 label, fg, hover_bg, cmd = item
+                def make_cmd(c=cmd):
+                    def callback():
+                        self._hide_context_menu()
+                        c()
+                    return callback
                 btn = ctk.CTkButton(inner, text=label, font=("", 12), height=30,
                                     fg_color="transparent", hover_color=hover_bg,
                                     text_color=fg, corner_radius=4, anchor="w",
-                                    command=lambda c=cmd: (self._hide_context_menu(), c()))
+                                    command=make_cmd(cmd))
                 btn.pack(fill="x", padx=4, pady=1)
 
         # 用 inner frame 的实际宽度设置窗口大小
