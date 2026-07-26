@@ -834,7 +834,7 @@ class App(ctk.CTk):
                 task._stop_flag = True
                 task._pause_flag = False
                 if task._thread and task._thread.is_alive():
-                    task._thread.join(timeout=5)
+                    task._thread.join(timeout=10)
         # 清理所有临时文件
         for task in self.tasks.values():
             stable_id = hashlib.md5(task.url.encode()).hexdigest()[:12]
@@ -844,7 +844,7 @@ class App(ctk.CTk):
                     try:
                         shutil.rmtree(td)
                     except Exception:
-                        pass
+                        self.after(3000, lambda p=td: self._retry_cleanup(p))
         self.tasks.clear()
         _save_tasks(self.tasks)
         self._refresh_task_list()
@@ -892,7 +892,7 @@ class App(ctk.CTk):
             task._stop_flag = True
             task._pause_flag = False
             if task._thread and task._thread.is_alive():
-                task._thread.join(timeout=5)
+                task._thread.join(timeout=10)  # 等待更长时间确保线程退出
         # 清理临时文件
         stable_id = hashlib.md5(task.url.encode()).hexdigest()[:12]
         for suffix in ("", "_retry"):
@@ -901,10 +901,19 @@ class App(ctk.CTk):
                 try:
                     shutil.rmtree(td)
                 except Exception:
-                    pass
+                    # 文件可能被锁，延迟重试清理
+                    self.after(3000, lambda p=td: self._retry_cleanup(p))
         del self.tasks[task_id]
         _save_tasks(self.tasks)
         self._refresh_task_list()
+
+    def _retry_cleanup(self, path):
+        """延迟重试清理临时目录"""
+        if os.path.exists(path):
+            try:
+                shutil.rmtree(path)
+            except Exception:
+                pass
 
     def _refresh_task_list(self):
         """增量刷新任务列表（只创建/删除变化的卡片，避免全部重建导致闪烁）"""
