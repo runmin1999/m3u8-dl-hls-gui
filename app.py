@@ -1016,15 +1016,14 @@ class App(ctk.CTk):
         self._check_clipboard()
 
     def _check_clipboard(self):
-        """定时检查剪贴板内容（仅窗口聚焦时检查，每 2 秒一次）"""
-        if not self._clipboard_paused:
+        """定时检查剪贴板内容（仅窗口聚焦 + URL 为空时检查，每 2 秒一次）"""
+        if not self._clipboard_paused and not self.url_var.get().strip():
             try:
                 clipboard = self.clipboard_get()
                 if clipboard != self._last_clipboard:
                     self._last_clipboard = clipboard
-                    # 检测是否为 M3U8 链接
                     match = re.search(r'https?://\S+\.m3u8\b', clipboard, re.IGNORECASE)
-                    if match and not self.url_var.get().strip():
+                    if match:
                         self.url_var.set(match.group())
                         self._show_toast("已检测到 M3U8 链接")
             except Exception:
