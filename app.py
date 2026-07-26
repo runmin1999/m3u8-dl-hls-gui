@@ -1,4 +1,4 @@
-"""m3u8-dl-hls-gui v0.12 - CustomTkinter 桌面应用"""
+"""m3u8-dl-hls-gui v0.13 - CustomTkinter 桌面应用"""
 
 import os
 import sys
@@ -701,8 +701,8 @@ class App(ctk.CTk):
 
     def __init__(self):
         super().__init__()
-        self.title("m3u8-dl-hls-gui v0.12")
-        self.geometry("900x620")
+        self.title("m3u8-dl-hls-gui v0.13")
+        self.geometry("930x620")
         self.minsize(750, 500)
         self.configure(fg_color=COLORS["bg"])
 
