@@ -606,7 +606,7 @@ class TaskCard(ctk.CTkFrame):
         x = event.x_root
         y = event.y_root
         inner.update_idletasks()
-        w = inner.winfo_reqwidth() // 2 + 4  # +4 for outer padding
+        w = inner.winfo_reqwidth() // 5 * 3 + 4  # +4 for outer padding
         h = inner.winfo_reqheight() + 4
         menu.geometry(f"{w}x{h}+{x}+{y}")
 
