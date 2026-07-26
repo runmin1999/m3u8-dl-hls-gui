@@ -9,6 +9,7 @@ import logging
 import shutil
 import time
 import ssl
+import re
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from datetime import datetime
@@ -499,6 +500,9 @@ class TaskCard(ctk.CTkFrame):
         self.on_delete = on_delete    # 删除回调
         self._build()
         self.update_ui()
+        # 右键菜单
+        self._create_context_menu()
+        self.bind("<Button-3>", self._show_context_menu)  # 右键点击
 
     def _build(self):
         """构建卡片 UI 布局"""
@@ -557,6 +561,40 @@ class TaskCard(ctk.CTkFrame):
         """分辨率下拉菜单变化时更新任务的分辨率"""
         self.task.resolution = value
 
+    def _create_context_menu(self):
+        """创建右键上下文菜单"""
+        import tkinter as tk
+        self._context_menu = tk.Menu(self, tearoff=0, bg=COLORS["card"], fg=COLORS["text"],
+                                     activebackground=COLORS["accent"], activeforeground=COLORS["text"],
+                                     font=("", 11))
+        self._context_menu.add_command(label="复制链接", command=self._copy_url)
+        self._context_menu.add_command(label="打开下载目录", command=self._open_task_dir)
+        self._context_menu.add_separator()
+        self._context_menu.add_command(label="删除任务", command=lambda: self.on_delete(self.task.task_id))
+
+    def _show_context_menu(self, event):
+        """显示右键菜单"""
+        try:
+            self._context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self._context_menu.grab_release()
+
+    def _copy_url(self):
+        """复制任务的 M3U8 链接到剪贴板"""
+        self.clipboard_clear()
+        self.clipboard_append(self.task.url)
+
+    def _open_task_dir(self):
+        """在文件管理器中打开任务的下载目录"""
+        dir_path = self.task.output_dir
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path, exist_ok=True)
+        if sys.platform == "win32":
+            os.startfile(dir_path)
+        else:
+            import subprocess
+            subprocess.Popen(["xdg-open" if sys.platform == "linux" else "open", dir_path])
+
     def update_ui(self):
         """根据任务状态刷新卡片 UI 显示"""
         t = self.task
@@ -609,6 +647,8 @@ class App(ctk.CTk):
         self._build_ui()
         self._refresh_task_list()
         self._poll_progress()  # 启动定时刷新
+        self._start_clipboard_monitor()  # 启动剪贴板监控
+        self._setup_drop()  # 启用拖拽
 
     def _build_ui(self):
         """构建主界面（左右两栏布局）"""
@@ -950,6 +990,47 @@ class App(ctk.CTk):
         for task_id, card in self.task_cards.items():
             card.update_ui()
         self.after(500, self._poll_progress)
+
+    # ── 剪贴板监控：自动识别 M3U8 链接 ──
+
+    def _start_clipboard_monitor(self):
+        """启动剪贴板监控，检测到 M3U8 链接时自动填入 URL 输入框"""
+        self._last_clipboard = ""
+        self._check_clipboard()
+
+    def _check_clipboard(self):
+        """定时检查剪贴板内容"""
+        try:
+            clipboard = self.clipboard_get()
+            if clipboard != self._last_clipboard:
+                self._last_clipboard = clipboard
+                # 检测是否为 M3U8 链接
+                if re.search(r'https?://\S+\.m3u8\b', clipboard, re.IGNORECASE):
+                    url = re.search(r'https?://\S+\.m3u8\b', clipboard, re.IGNORECASE).group()
+                    if not self.url_var.get().strip():
+                        self.url_var.set(url)
+        except Exception:
+            pass
+        self.after(1000, self._check_clipboard)  # 每秒检查一次
+
+    # ── 拖拽支持：拖入 M3U8 链接自动填入 ──
+
+    def _setup_drop(self):
+        """启用窗口拖拽事件监听"""
+        # tkinter 原生不支持拖拽文件，这里用 windnd 或手动绑定
+        # 简单方案：监听粘贴事件（Ctrl+V）
+        self.bind("<Control-v>", self._on_paste)
+        self.bind("<FocusIn>", lambda e: self._check_clipboard())
+
+    def _on_paste(self, event=None):
+        """Ctrl+V 粘贴时检测 M3U8 链接"""
+        try:
+            clipboard = self.clipboard_get()
+            match = re.search(r'https?://\S+\.m3u8\b', clipboard, re.IGNORECASE)
+            if match:
+                self.url_var.set(match.group())
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
