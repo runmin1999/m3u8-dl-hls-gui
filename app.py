@@ -606,7 +606,9 @@ class TaskCard(ctk.CTkFrame):
         x = event.x_root
         y = event.y_root
         menu.update_idletasks()
-        menu.geometry(f"+{x}+{y}")
+        w = menu.winfo_reqwidth()
+        h = menu.winfo_reqheight()
+        menu.geometry(f"{w}x{h}+{x}+{y}")
 
         self._context_menu = menu
         # 点击其他地方关闭菜单
