@@ -562,19 +562,19 @@ class TaskCard(ctk.CTkFrame):
         self.task.resolution = value
 
     def _create_context_menu(self):
-        """创建右键上下文菜单"""
+        """创建右键上下文菜单（与卡片风格一致）"""
         import tkinter as tk
         self._context_menu = tk.Menu(self, tearoff=0,
-                                     bg="#1e1e2e", fg="#cdd6f4",
-                                     activebackground="#45475a", activeforeground="#cdd6f4",
+                                     bg=COLORS["card"], fg=COLORS["text"],
+                                     activebackground=COLORS["accent"], activeforeground=COLORS["text"],
                                      activeborderwidth=0, borderwidth=1,
                                      relief="flat", font=("", 12),
-                                     selectcolor="#45475a", postcommand=self._on_menu_show)
-        self._context_menu.add_command(label="  复制链接  ", command=self._copy_url, compound="left")
-        self._context_menu.add_command(label="  打开下载目录  ", command=self._open_task_dir, compound="left")
+                                     selectcolor=COLORS["accent"])
+        self._context_menu.add_command(label="  复制链接  ", command=self._copy_url)
+        self._context_menu.add_command(label="  打开下载目录  ", command=self._open_task_dir)
         self._context_menu.add_separator()
         self._context_menu.add_command(label="  删除任务  ", command=lambda: self.on_delete(self.task.task_id),
-                                       foreground="#f38ba8", activeforeground="#f38ba8")
+                                       foreground=COLORS["error"], activeforeground=COLORS["error"])
 
     def _bind_right_click(self, widget):
         """递归给控件及所有子控件绑定右键菜单"""
