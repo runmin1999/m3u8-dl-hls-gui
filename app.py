@@ -1010,31 +1010,40 @@ class App(ctk.CTk):
     def _start_clipboard_monitor(self):
         """启动剪贴板监控，检测到 M3U8 链接时自动填入 URL 输入框"""
         self._last_clipboard = ""
+        self._clipboard_paused = False  # 应用失焦时暂停监控
+        self.bind("<FocusIn>", lambda e: setattr(self, '_clipboard_paused', False))
+        self.bind("<FocusOut>", lambda e: setattr(self, '_clipboard_paused', True))
         self._check_clipboard()
 
     def _check_clipboard(self):
-        """定时检查剪贴板内容"""
-        try:
-            clipboard = self.clipboard_get()
-            if clipboard != self._last_clipboard:
-                self._last_clipboard = clipboard
-                # 检测是否为 M3U8 链接
-                if re.search(r'https?://\S+\.m3u8\b', clipboard, re.IGNORECASE):
-                    url = re.search(r'https?://\S+\.m3u8\b', clipboard, re.IGNORECASE).group()
-                    if not self.url_var.get().strip():
-                        self.url_var.set(url)
-        except Exception:
-            pass
-        self.after(1000, self._check_clipboard)  # 每秒检查一次
+        """定时检查剪贴板内容（仅窗口聚焦时检查，每 2 秒一次）"""
+        if not self._clipboard_paused:
+            try:
+                clipboard = self.clipboard_get()
+                if clipboard != self._last_clipboard:
+                    self._last_clipboard = clipboard
+                    # 检测是否为 M3U8 链接
+                    match = re.search(r'https?://\S+\.m3u8\b', clipboard, re.IGNORECASE)
+                    if match and not self.url_var.get().strip():
+                        self.url_var.set(match.group())
+                        self._show_toast("已检测到 M3U8 链接")
+            except Exception:
+                pass
+        self.after(2000, self._check_clipboard)
 
-    # ── 拖拽支持：拖入 M3U8 链接自动填入 ──
+    def _show_toast(self, text, duration=2000):
+        """显示简短提示信息"""
+        toast = ctk.CTkLabel(self, text=text, font=("", 11),
+                             fg_color=COLORS["accent"], text_color="white",
+                             corner_radius=6, padx=12, pady=6)
+        toast.place(relx=0.5, rely=0.95, anchor="center")
+        self.after(duration, toast.destroy)
+
+    # ── Ctrl+V 粘贴检测 ──
 
     def _setup_drop(self):
-        """启用窗口拖拽事件监听"""
-        # tkinter 原生不支持拖拽文件，这里用 windnd 或手动绑定
-        # 简单方案：监听粘贴事件（Ctrl+V）
+        """启用 Ctrl+V 粘贴检测"""
         self.bind("<Control-v>", self._on_paste)
-        self.bind("<FocusIn>", lambda e: self._check_clipboard())
 
     def _on_paste(self, event=None):
         """Ctrl+V 粘贴时检测 M3U8 链接"""
@@ -1042,7 +1051,13 @@ class App(ctk.CTk):
             clipboard = self.clipboard_get()
             match = re.search(r'https?://\S+\.m3u8\b', clipboard, re.IGNORECASE)
             if match:
+                # 检测到 M3U8 链接，填入 URL 框，阻止默认粘贴
                 self.url_var.set(match.group())
+                self._show_toast("已填入 M3U8 链接")
+                return "break"  # 阻止默认粘贴行为
+            # 非 M3U8 内容，允许默认粘贴
+        except Exception:
+            pass
         except Exception:
             pass
 
