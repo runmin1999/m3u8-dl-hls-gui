@@ -596,18 +596,18 @@ class TaskCard(ctk.CTkFrame):
                 sep.pack(fill="x", padx=12, pady=4)
             else:
                 label, fg, hover_bg, cmd = item
-                btn = ctk.CTkButton(inner, text=label, font=("", 12), width=120, height=30,
+                btn = ctk.CTkButton(inner, text=label, font=("", 12), height=30,
                                     fg_color="transparent", hover_color=hover_bg,
                                     text_color=fg, corner_radius=4, anchor="w",
                                     command=lambda c=cmd: (self._hide_context_menu(), c()))
-                btn.pack(padx=4, pady=1)
+                btn.pack(fill="x", padx=4, pady=1)
 
-        # 计算菜单位置
+        # 用 inner frame 的实际宽度设置窗口大小
         x = event.x_root
         y = event.y_root
-        menu.update_idletasks()
-        w = menu.winfo_reqwidth()
-        h = menu.winfo_reqheight()
+        inner.update_idletasks()
+        w = inner.winfo_reqwidth() + 4  # +4 for outer padding
+        h = inner.winfo_reqheight() + 4
         menu.geometry(f"{w}x{h}+{x}+{y}")
 
         self._context_menu = menu
