@@ -562,19 +562,8 @@ class TaskCard(ctk.CTkFrame):
         self.task.resolution = value
 
     def _create_context_menu(self):
-        """创建右键上下文菜单（与卡片风格一致）"""
-        import tkinter as tk
-        self._context_menu = tk.Menu(self, tearoff=0,
-                                     bg=COLORS["card"], fg=COLORS["text"],
-                                     activebackground=COLORS["accent"], activeforeground=COLORS["text"],
-                                     activeborderwidth=0, borderwidth=1,
-                                     relief="flat", font=("", 12),
-                                     selectcolor=COLORS["accent"])
-        self._context_menu.add_command(label="  复制链接  ", command=self._copy_url)
-        self._context_menu.add_command(label="  打开下载目录  ", command=self._open_task_dir)
-        self._context_menu.add_separator()
-        self._context_menu.add_command(label="  删除任务  ", command=lambda: self.on_delete(self.task.task_id),
-                                       foreground=COLORS["error"], activeforeground=COLORS["error"])
+        """创建右键上下文菜单（圆角自定义样式）"""
+        self._context_menu = None  # 延迟创建
 
     def _bind_right_click(self, widget):
         """递归给控件及所有子控件绑定右键菜单"""
@@ -583,15 +572,55 @@ class TaskCard(ctk.CTkFrame):
             self._bind_right_click(child)
 
     def _show_context_menu(self, event):
-        """显示右键菜单"""
-        try:
-            self._context_menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            self._context_menu.grab_release()
+        """显示圆角右键菜单"""
+        self._hide_context_menu()
+        import tkinter as tk
+        menu = tk.Toplevel(self)
+        menu.overrideredirect(True)  # 无标题栏
+        menu.attributes("-topmost", True)
+        menu.configure(bg=COLORS["border"], highlightthickness=0)
 
-    def _on_menu_show(self):
-        """菜单显示前动态更新状态"""
-        pass
+        # 菜单内容容器（带圆角模拟）
+        inner = ctk.CTkFrame(menu, fg_color=COLORS["card"], corner_radius=8)
+        inner.pack(padx=1, pady=1)
+
+        # 菜单项
+        items = [
+            ("复制链接", COLORS["text"], COLORS["accent"], self._copy_url),
+            ("打开下载目录", COLORS["text"], COLORS["accent"], self._open_task_dir),
+            None,  # 分隔线
+            ("删除任务", COLORS["error"], "#3d1a1a", lambda: self.on_delete(self.task.task_id)),
+        ]
+
+        for item in items:
+            if item is None:
+                # 分隔线
+                sep = ctk.CTkFrame(inner, fg_color=COLORS["border"], height=1)
+                sep.pack(fill="x", padx=8, pady=4)
+            else:
+                label, fg, hover_bg, cmd = item
+                btn = ctk.CTkButton(inner, text=label, font=("", 12), height=32,
+                                    fg_color="transparent", hover_color=hover_bg,
+                                    text_color=fg, corner_radius=4, anchor="w",
+                                    command=lambda c=cmd: (self._hide_context_menu(), c()))
+                btn.pack(fill="x", padx=4, pady=1)
+
+        # 计算菜单位置
+        x = event.x_root
+        y = event.y_root
+        menu.update_idletasks()
+        menu.geometry(f"+{x}+{y}")
+
+        self._context_menu = menu
+        # 点击其他地方关闭菜单
+        menu.bind("<FocusOut>", lambda e: self._hide_context_menu())
+        inner.focus_set()
+
+    def _hide_context_menu(self):
+        """关闭右键菜单"""
+        if self._context_menu:
+            self._context_menu.destroy()
+            self._context_menu = None
 
     def _copy_url(self):
         """复制任务的 M3U8 链接到剪贴板"""
