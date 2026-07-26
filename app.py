@@ -502,7 +502,7 @@ class TaskCard(ctk.CTkFrame):
         self.update_ui()
         # 右键菜单
         self._create_context_menu()
-        self.bind("<Button-3>", self._show_context_menu)  # 右键点击
+        self._bind_right_click(self)  # 给卡片及所有子控件绑定右键
 
     def _build(self):
         """构建卡片 UI 布局"""
@@ -564,13 +564,22 @@ class TaskCard(ctk.CTkFrame):
     def _create_context_menu(self):
         """创建右键上下文菜单"""
         import tkinter as tk
-        self._context_menu = tk.Menu(self, tearoff=0, bg=COLORS["card"], fg=COLORS["text"],
+        self._context_menu = tk.Menu(self, tearoff=0,
+                                     bg="#1a1a24", fg=COLORS["text"],
                                      activebackground=COLORS["accent"], activeforeground=COLORS["text"],
-                                     font=("", 11))
-        self._context_menu.add_command(label="复制链接", command=self._copy_url)
-        self._context_menu.add_command(label="打开下载目录", command=self._open_task_dir)
-        self._context_menu.add_separator()
-        self._context_menu.add_command(label="删除任务", command=lambda: self.on_delete(self.task.task_id))
+                                     activeborderwidth=0, borderwidth=0,
+                                     font=("", 11), relief="flat")
+        self._context_menu.add_command(label="📋 复制链接", command=self._copy_url)
+        self._context_menu.add_command(label="📂 打开下载目录", command=self._open_task_dir)
+        self._context_menu.add_separator(bg=COLORS["border"])
+        self._context_menu.add_command(label="🗑️ 删除任务", command=lambda: self.on_delete(self.task.task_id),
+                                       foreground=COLORS["error"])
+
+    def _bind_right_click(self, widget):
+        """递归给控件及所有子控件绑定右键菜单"""
+        widget.bind("<Button-3>", self._show_context_menu)
+        for child in widget.winfo_children():
+            self._bind_right_click(child)
 
     def _show_context_menu(self, event):
         """显示右键菜单"""
