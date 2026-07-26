@@ -618,15 +618,32 @@ class TaskCard(ctk.CTkFrame):
         menu.geometry(f"{w}x{h}+{x}+{y}")
 
         self._context_menu = menu
-        # 点击其他地方关闭菜单
-        menu.bind("<FocusOut>", lambda e: self._hide_context_menu())
-        inner.focus_set()
+        # 点击菜单外部关闭菜单
+        self.bind("<Button-1>", self._on_outside_click)
+        self.bind("<Button-3>", self._on_outside_click)
 
     def _hide_context_menu(self):
         """关闭右键菜单"""
         if self._context_menu:
             self._context_menu.destroy()
             self._context_menu = None
+            self.unbind("<Button-1>")
+            self.unbind("<Button-3>")
+
+    def _on_outside_click(self, event):
+        """点击外部关闭菜单"""
+        if self._context_menu:
+            # 检查点击是否在菜单内
+            try:
+                x, y = event.x_root, event.y_root
+                mx = self._context_menu.winfo_rootx()
+                my = self._context_menu.winfo_rooty()
+                mw = self._context_menu.winfo_width()
+                mh = self._context_menu.winfo_height()
+                if not (mx <= x <= mx + mw and my <= y <= my + mh):
+                    self._hide_context_menu()
+            except Exception:
+                self._hide_context_menu()
 
     def _copy_url(self):
         """复制任务的 M3U8 链接到剪贴板"""
