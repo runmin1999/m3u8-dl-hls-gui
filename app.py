@@ -571,7 +571,7 @@ class TaskCard(ctk.CTkFrame):
                                      font=("", 11), relief="flat")
         self._context_menu.add_command(label="📋 复制链接", command=self._copy_url)
         self._context_menu.add_command(label="📂 打开下载目录", command=self._open_task_dir)
-        self._context_menu.add_separator(bg=COLORS["border"])
+        self._context_menu.add_separator()
         self._context_menu.add_command(label="🗑️ 删除任务", command=lambda: self.on_delete(self.task.task_id),
                                        foreground=COLORS["error"])
 
