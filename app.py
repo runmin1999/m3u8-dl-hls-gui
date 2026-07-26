@@ -828,10 +828,11 @@ class App(ctk.CTk):
 
     def _clear_all(self):
         """清空所有任务（停止运行中的任务，清理临时文件）"""
-        # 先停止所有运行中的任务
+        # 先停止所有运行/暂停中的任务
         for task in self.tasks.values():
-            if task.status in ("pending", "downloading"):
-                task.stop()
+            if task.status in ("pending", "downloading", "paused"):
+                task._stop_flag = True
+                task._pause_flag = False
                 if task._thread and task._thread.is_alive():
                     task._thread.join(timeout=5)
         # 清理所有临时文件
@@ -882,13 +883,14 @@ class App(ctk.CTk):
             _save_tasks(self.tasks)
 
     def _delete_task(self, task_id):
-        """删除任务（停止线程、清理临时文件、删除已完成的输出文件）"""
+        """删除任务（停止线程、清理临时文件）"""
         task = self.tasks.get(task_id)
         if not task:
             return
-        # 如果任务正在运行，先停止线程
-        if task.status in ("pending", "downloading"):
-            task.stop()
+        # 如果任务正在运行或暂停中，先停止线程
+        if task.status in ("pending", "downloading", "paused"):
+            task._stop_flag = True
+            task._pause_flag = False
             if task._thread and task._thread.is_alive():
                 task._thread.join(timeout=5)
         # 清理临时文件
@@ -898,13 +900,6 @@ class App(ctk.CTk):
             if os.path.exists(td):
                 try:
                     shutil.rmtree(td)
-                except Exception:
-                    pass
-        # 如果任务已完成，删除输出的视频文件
-        if task.status == "completed" and task.output_path:
-            if os.path.exists(task.output_path):
-                try:
-                    os.remove(task.output_path)
                 except Exception:
                     pass
         del self.tasks[task_id]
