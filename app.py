@@ -1,4 +1,4 @@
-"""m3u8-dl-hls-gui v0.13 - CustomTkinter 桌面应用"""
+"""m3u8-dl-hls-gui v0.14 - CustomTkinter 桌面应用"""
 
 import os
 import sys
@@ -200,8 +200,10 @@ class DownloadTask:
         self._stop_flag = False                         # 停止标志（线程间通信）
         self._pause_flag = False                        # 暂停标志（线程间通信）
         self._thread = None                             # 下载线程引用
-        self._downloaded_indices = set()                # 已下载分片索引集合（用于断点续传）
+        self._downloaded_indices = set()                # 已下载分片索引集合（用于 M3U8 断点续传）
+        self._mp4_downloaded = 0                        # MP4 已下载字节数（用于 MP4 断点续传）
         self._download_speed = 0                        # 下载速度（字节/秒）
+        self._dl_id = 0                                 # 下载会话 ID（用于区分新旧线程）
         self.available_resolutions = ["最高分辨率"]     # 可用分辨率列表
 
     @property
@@ -248,6 +250,7 @@ class DownloadTask:
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
             "custom_headers": self.custom_headers, "download_speed": self.download_speed,
             "downloaded_indices": list(self._downloaded_indices) if self._downloaded_indices else [],
+            "mp4_downloaded": getattr(self, '_mp4_downloaded', 0),
             "available_resolutions": getattr(self, 'available_resolutions', ["最高分辨率"]),
             "resolution": getattr(self, 'resolution', "最高分辨率"),
         }
@@ -290,6 +293,7 @@ def _load_tasks():
             task.started_at = item.get("started_at", None)
             task.finished_at = item.get("finished_at", None)
             task._downloaded_indices = set(item.get("downloaded_indices", []))
+            task._mp4_downloaded = item.get("mp4_downloaded", 0)
             task.available_resolutions = item.get("available_resolutions", ["最高分辨率"])
             task.resolution = item.get("resolution", "最高分辨率")
             tasks[task.task_id] = task
@@ -298,12 +302,236 @@ def _load_tasks():
     return tasks
 
 
+def run_download_mp4(task, tasks_dict, on_progress=None):
+    """MP4 多线程下载（支持断点续传、Range 分块）"""
+    if task.status != "downloading":
+        return
+    try:
+        task.status = "downloading"
+        task.started_at = datetime.now()
+        # 递增下载会话 ID，旧线程自动失效
+        task._dl_id = getattr(task, '_dl_id', 0) + 1
+        my_dl_id = task._dl_id
+        if on_progress:
+            on_progress(task)
+        if task._stop_flag:
+            return
+
+        task.current_action = "连接服务器..."
+        if on_progress:
+            on_progress(task)
+
+        output_path = os.path.join(task.output_dir, task.output_name)
+        tmp_path = output_path + ".tmp"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+        headers.update(task.custom_headers)
+        proxies = {"http": task.proxy, "https": task.proxy} if task.proxy else None
+
+        # 先探测文件大小和是否支持 Range
+        probe_headers = dict(headers)
+        resp = requests.head(task.url, headers=probe_headers, timeout=30, proxies=proxies)
+        total_size = int(resp.headers.get('content-length', 0))
+        accept_ranges = resp.headers.get('accept-ranges', '') == 'bytes'
+
+        if total_size == 0:
+            # HEAD 没返回大小，用 GET 探测
+            resp = requests.get(task.url, headers=probe_headers, timeout=30, stream=True, proxies=proxies)
+            total_size = int(resp.headers.get('content-length', 0))
+            resp.close()
+
+        task.total_segments = total_size if total_size > 0 else 0
+
+        # 检查已下载的部分（断点续传）
+        existing_size = getattr(task, '_mp4_downloaded', 0)
+        downloaded = 0
+        if existing_size > 0 and os.path.exists(tmp_path):
+            file_size = os.path.getsize(tmp_path)
+            if file_size == existing_size:
+                downloaded = file_size
+            else:
+                existing_size = 0
+
+        task.downloaded_segments = downloaded
+        task.current_action = "下载中..."
+        if on_progress:
+            on_progress(task)
+
+        # 多线程下载
+        workers = task.workers if accept_ranges and total_size > 0 else 1
+        chunk_size = total_size // workers if total_size > 0 and workers > 1 else 0
+
+        def download_chunk(start, end, chunk_idx, file_lock):
+            """下载指定 Range 的数据块并直接写入文件"""
+            if task._stop_flag or task._dl_id != my_dl_id:
+                return None
+            chunk_session = requests.Session()
+            chunk_session.headers.update(headers)
+            if proxies:
+                chunk_session.proxies.update(proxies)
+            chunk_headers = dict(headers)
+            chunk_headers["Range"] = f"bytes={start}-{end}"
+            try:
+                resp = chunk_session.get(task.url, headers=chunk_headers, timeout=30, stream=True)
+                resp.raise_for_status()
+                chunk_downloaded = 0
+                local_bytes = 0
+                for c in resp.iter_content(chunk_size=65536):
+                    # 每个 chunk 检查停止/暂停（不加锁，只读布尔值）
+                    if task._stop_flag or task._dl_id != my_dl_id:
+                        resp.close()
+                        chunk_session.close()
+                        return None
+                    while task._pause_flag and not task._stop_flag and task._dl_id == my_dl_id:
+                        time.sleep(0.1)
+                    if c:
+                        with file_lock:
+                            with open(tmp_path, "r+b" if os.path.exists(tmp_path) else "wb") as f:
+                                f.seek(start + chunk_downloaded)
+                                f.write(c)
+                        chunk_downloaded += len(c)
+                        local_bytes += len(c)
+                    # 每 512KB 同步进度（加锁更新共享状态）
+                    if local_bytes >= 524288:
+                        with _dl_lock:
+                            _dl_downloaded[0] += local_bytes
+                            task.downloaded_segments = _dl_downloaded[0]
+                            task._mp4_downloaded = _dl_downloaded[0]
+                            if total_size > 0:
+                                task.progress = int((_dl_downloaded[0] / total_size) * 100)
+                            if task.started_at:
+                                elapsed = (datetime.now() - task.started_at).total_seconds()
+                                if elapsed > 0:
+                                    task._download_speed = int(_dl_downloaded[0] / elapsed)
+                        local_bytes = 0
+                resp.close()
+                chunk_session.close()
+                return (chunk_idx, chunk_downloaded)
+            except Exception:
+                chunk_session.close()
+                return None
+
+        if workers > 1 and chunk_size > 0:
+            # 多线程 Range 下载
+            task.current_action = f"多线程下载中 ({workers}线程)..."
+            if on_progress:
+                on_progress(task)
+
+            chunks = []
+            for i in range(workers):
+                start = downloaded + i * chunk_size
+                end = start + chunk_size - 1 if i < workers - 1 else total_size - 1
+                if start < total_size:
+                    chunks.append((start, end, i))
+
+            # 创建 .tmp 文件并预分配空间
+            with open(tmp_path, "wb") as f:
+                if total_size > 0:
+                    f.truncate(total_size)
+
+            completed_chunks = 0
+            _dl_downloaded = [downloaded]
+            _dl_lock = threading.Lock()
+            _file_lock = threading.Lock()
+
+            from concurrent.futures import ThreadPoolExecutor, wait
+            executor = ThreadPoolExecutor(max_workers=workers)
+            futures = {executor.submit(download_chunk, s, e, i, _file_lock): (s, e, i) for s, e, i in chunks}
+
+            # 非阻塞轮询 future，支持随时停止
+            pending = set(futures.keys())
+            while pending and not task._stop_flag:
+                done, pending = wait(pending, timeout=0.5, return_when="FIRST_COMPLETED")
+                for future in done:
+                    result = future.result()
+                    if result:
+                        completed_chunks += 1
+                        task.current_action = f"下载中... {completed_chunks}/{len(chunks)} 块"
+                        if on_progress:
+                            on_progress(task)
+
+            if task._stop_flag:
+                # 取消所有未完成的 future
+                for f in pending:
+                    f.cancel()
+                task._mp4_downloaded = _dl_downloaded[0]
+                _save_tasks(tasks_dict)
+
+            executor.shutdown(wait=False)
+        else:
+            # 单线程下载
+            session = requests.Session()
+            session.headers.update(headers)
+            if proxies:
+                session.proxies.update(proxies)
+
+            req_headers = dict(headers)
+            if downloaded > 0:
+                req_headers["Range"] = f"bytes={downloaded}-"
+
+            resp = session.get(task.url, headers=req_headers, timeout=60, stream=True)
+            if downloaded > 0 and resp.status_code == 200:
+                downloaded = 0
+            resp.raise_for_status()
+
+            write_mode = "ab" if downloaded > 0 and resp.status_code == 206 else "wb"
+            with open(tmp_path, write_mode) as f:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    if task._stop_flag:
+                        break
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        task.downloaded_segments = downloaded
+                        task._mp4_downloaded = downloaded
+                        if total_size > 0:
+                            task.progress = int((downloaded / total_size) * 100)
+                        if task.started_at:
+                            elapsed = (datetime.now() - task.started_at).total_seconds()
+                            if elapsed > 0:
+                                task._download_speed = int(downloaded / elapsed)
+                        if on_progress:
+                            on_progress(task)
+
+        if task._stop_flag:
+            _save_tasks(tasks_dict)
+            return
+
+        os.replace(tmp_path, output_path)
+
+        task.status = "completed"
+        task.progress = 100
+        task.current_action = "完成"
+        task.output_path = output_path
+        task._mp4_downloaded = 0
+        task.finished_at = datetime.now().isoformat()
+        if on_progress:
+            on_progress(task)
+        _save_tasks(tasks_dict)
+
+    except Exception as e:
+        if task._stop_flag:
+            task.status = "stopped"
+            task.current_action = "已停止"
+        else:
+            task.status = "failed"
+            task.error = str(e)
+            task.current_action = "失败"
+        task.finished_at = datetime.now().isoformat()
+        if on_progress:
+            on_progress(task)
+        _save_tasks(tasks_dict)
+
+
 def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率"):
     """
     执行下载任务的主流程（在子线程中运行）
-
-    流程：解析m3u8 → 选择分辨率 → 下载分片 → 解密（如需） → 合并 → 清理
+    自动检测 MP4/M3U8 格式，调用对应下载函数
     """
+    # 检测是否为 MP4 链接
+    if re.search(r'https?://\S+\.mp4(\?\S*)?', task.url, re.IGNORECASE):
+        run_download_mp4(task, tasks_dict, on_progress)
+        return
+
     if task.status != "downloading":
         return
     try:
@@ -376,7 +604,7 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
         # 停止检查函数：暂停时进入等待循环，直到恢复或停止
         def stop_check():
             while task._pause_flag and not task._stop_flag:
-                time.sleep(0.3)
+                time.sleep(0.1)
             return task._stop_flag
 
         # 进度回调：更新任务的进度信息
@@ -701,7 +929,7 @@ class App(ctk.CTk):
 
     def __init__(self):
         super().__init__()
-        self.title("m3u8-dl-hls-gui v0.13")
+        self.title("m3u8-dl-hls-gui v0.14")
         self.geometry("930x620")
         self.minsize(750, 500)
         self.configure(fg_color=COLORS["bg"])
@@ -742,10 +970,10 @@ class App(ctk.CTk):
         ek = {"height": 34, "font": ("Consolas", 11), "fg_color": COLORS["input"], "border_color": COLORS["border"], "text_color": COLORS["text"], "corner_radius": 6}
 
         r = 0  # 行号计数器
-        # M3U8 链接地址
-        ctk.CTkLabel(form, text="M3U8 链接地址", **lk).grid(row=r, column=0, columnspan=2, sticky="w", pady=(0, 4)); r += 1
+        # 链接地址（支持 M3U8 和 MP4 等格式）
+        ctk.CTkLabel(form, text="视频链接地址", **lk).grid(row=r, column=0, columnspan=2, sticky="w", pady=(0, 4)); r += 1
         self.url_var = ctk.StringVar()
-        ctk.CTkEntry(form, textvariable=self.url_var, placeholder_text="https://example.com/video.m3u8", **ek).grid(row=r, column=0, columnspan=2, sticky="ew", pady=(0, 8)); r += 1
+        ctk.CTkEntry(form, textvariable=self.url_var, placeholder_text="https://example.com/video.m3u8 / .mp4", **ek).grid(row=r, column=0, columnspan=2, sticky="ew", pady=(0, 8)); r += 1
 
         # Referer 来源页（防盗链）
         ctk.CTkLabel(form, text="Referer 来源页（可选）", **lk).grid(row=r, column=0, columnspan=2, sticky="w", pady=(0, 4)); r += 1
@@ -846,10 +1074,10 @@ class App(ctk.CTk):
             subprocess.Popen(["xdg-open" if sys.platform == "linux" else "open", dir_path])
 
     def _start_download(self):
-        """开始下载：验证输入 → 解析 M3U8 获取分辨率 → 创建任务"""
+        """开始下载：验证输入 → 检测格式 → 创建任务"""
         url = self.url_var.get().strip()
         if not url:
-            messagebox.showwarning("警告", "请输入M3U8地址")
+            messagebox.showwarning("警告", "请输入视频链接地址")
             return
         # 检查是否已有相同 URL 的任务
         for t in self.tasks.values():
@@ -861,34 +1089,39 @@ class App(ctk.CTk):
         self._download_btn.configure(state="disabled")
         self._available_resolutions = ["最高分辨率"]
 
-        # 在子线程中解析 M3U8（避免阻塞 UI）
-        def parse_and_create():
-            try:
-                headers = {}
-                referer = self.referer_var.get().strip()
-                if referer:
-                    headers['Referer'] = referer
-                content = fetch_m3u8(url, headers, self.proxy_var.get().strip())
-                base = get_base_url(url)
-                playlist = parse_m3u8(content, base)
-                # 如果是 Master Playlist，提取可用分辨率列表
-                if playlist.is_master and playlist.streams:
-                    resolutions = ["最高分辨率"]
-                    for s in playlist.streams:
-                        name = s.name or f"{s.bandwidth}bps"
-                        if name not in resolutions:
-                            resolutions.append(name)
-                    self._available_resolutions = resolutions
-            except Exception as e:
-                logger.warning(f"获取分辨率失败: {e}")
-            finally:
-                # 回到主线程创建任务（tkinter 必须在主线程操作）
-                self.after(0, lambda: self._create_task(url))
+        # 判断是否为 MP4 链接
+        is_mp4 = bool(re.search(r'https?://\S+\.mp4(\?\S*)?', url, re.IGNORECASE))
 
-        import threading
-        threading.Thread(target=parse_and_create, daemon=True).start()
+        if is_mp4:
+            # MP4 直接下载，无需解析 M3U8
+            self._create_task(url, is_mp4=True)
+        else:
+            # M3U8：在子线程中解析获取分辨率列表
+            def parse_and_create():
+                try:
+                    headers = {}
+                    referer = self.referer_var.get().strip()
+                    if referer:
+                        headers['Referer'] = referer
+                    content = fetch_m3u8(url, headers, self.proxy_var.get().strip())
+                    base = get_base_url(url)
+                    playlist = parse_m3u8(content, base)
+                    if playlist.is_master and playlist.streams:
+                        resolutions = ["最高分辨率"]
+                        for s in playlist.streams:
+                            name = s.name or f"{s.bandwidth}bps"
+                            if name not in resolutions:
+                                resolutions.append(name)
+                        self._available_resolutions = resolutions
+                except Exception as e:
+                    logger.warning(f"获取分辨率失败: {e}")
+                finally:
+                    self.after(0, lambda: self._create_task(url, is_mp4=False))
 
-    def _create_task(self, url):
+            import threading
+            threading.Thread(target=parse_and_create, daemon=True).start()
+
+    def _create_task(self, url, is_mp4=False):
         """创建下载任务并添加到列表"""
         output_name = self.name_var.get().strip() or "output"
         # 清理文件名中的 Windows 非法字符
@@ -898,8 +1131,13 @@ class App(ctk.CTk):
         output_name = output_name.strip('. ')
         if not output_name:
             output_name = "output"
-        if not output_name.lower().endswith(".ts"):
-            output_name += ".ts"
+        # 根据格式设置扩展名
+        if is_mp4:
+            if not output_name.lower().endswith(".mp4"):
+                output_name += ".mp4"
+        else:
+            if not output_name.lower().endswith(".ts"):
+                output_name += ".ts"
         try:
             workers = max(1, min(100, int(self.workers_var.get())))
         except ValueError:
@@ -979,6 +1217,7 @@ class App(ctk.CTk):
         task = self.tasks.get(task_id)
         if task:
             task.pause()
+            # 保存当前下载进度用于续传
             _save_tasks(self.tasks)
 
     def _stop_task(self, task_id):
@@ -987,39 +1226,58 @@ class App(ctk.CTk):
         if task:
             task.stop()
             _save_tasks(self.tasks)
+            _save_tasks(self.tasks)
 
     def _delete_task(self, task_id):
-        """删除任务（停止线程、清理临时文件）"""
+        """删除任务（立即移除，后台清理）"""
         task = self.tasks.get(task_id)
         if not task:
             return
-        # 如果任务正在运行或暂停中，先停止线程
-        if task.status in ("pending", "downloading", "paused"):
-            task._stop_flag = True
-            task._pause_flag = False
-            if task._thread and task._thread.is_alive():
-                task._thread.join(timeout=10)  # 等待更长时间确保线程退出
-        # 清理临时文件
-        stable_id = hashlib.md5(task.url.encode()).hexdigest()[:12]
-        for suffix in ("", "_retry"):
-            td = os.path.join(task.output_dir, f".m3u8_temp_{stable_id}{suffix}")
-            if os.path.exists(td):
-                try:
-                    shutil.rmtree(td)
-                except Exception:
-                    # 文件可能被锁，延迟重试清理
-                    self.after(3000, lambda p=td: self._retry_cleanup(p))
+        # 标记停止（线程自行退出）
+        task._stop_flag = True
+        task._pause_flag = False
+        # 立即从列表移除
         del self.tasks[task_id]
         _save_tasks(self.tasks)
         self._refresh_task_list()
+        # 后台清理临时文件（不阻塞 UI）
+        def cleanup():
+            # 等线程退出（最多 5 秒）
+            if task._thread and task._thread.is_alive():
+                task._thread.join(timeout=5)
+            time.sleep(0.5)  # 额外等待确保文件句柄释放
+            # 清理 M3U8 临时目录
+            stable_id = hashlib.md5(task.url.encode()).hexdigest()[:12]
+            for suffix in ("", "_retry"):
+                td = os.path.join(task.output_dir, f".m3u8_temp_{stable_id}{suffix}")
+                if os.path.exists(td):
+                    try: shutil.rmtree(td)
+                    except: pass
+            # 清理 MP4 临时文件（重试 3 次）
+            if task.output_name:
+                mp4_tmp = os.path.join(task.output_dir, task.output_name + ".tmp")
+                for attempt in range(3):
+                    if os.path.exists(mp4_tmp):
+                        try:
+                            os.remove(mp4_tmp)
+                            break
+                        except:
+                            time.sleep(1)
+        t = threading.Thread(target=cleanup)
+        t.daemon = False
+        t.start()
 
-    def _retry_cleanup(self, path):
-        """延迟重试清理临时目录"""
+    def _retry_cleanup(self, path, retries=3):
+        """延迟重试清理文件/目录"""
         if os.path.exists(path):
             try:
-                shutil.rmtree(path)
+                if os.path.isfile(path):
+                    os.remove(path)
+                else:
+                    shutil.rmtree(path)
             except Exception:
-                pass
+                if retries > 0:
+                    self.after(3000, lambda p=path, r=retries-1: self._retry_cleanup(p, r))
 
     def _refresh_task_list(self):
         """增量刷新任务列表（只创建/删除变化的卡片，避免全部重建导致闪烁）"""
@@ -1074,7 +1332,7 @@ class App(ctk.CTk):
                 clipboard = self.clipboard_get()
                 if clipboard != self._last_clipboard:
                     self._last_clipboard = clipboard
-                    match = re.search(r'https?://\S+\.m3u8\b', clipboard, re.IGNORECASE)
+                    match = re.search(r'https?://\S+\.(m3u8|mp4)(\?\S*)?', clipboard, re.IGNORECASE)
                     if match:
                         self.url_var.set(match.group())
                         self._show_toast("已检测到 M3U8 链接")
@@ -1100,7 +1358,7 @@ class App(ctk.CTk):
         """Ctrl+V 粘贴时检测 M3U8 链接"""
         try:
             clipboard = self.clipboard_get()
-            match = re.search(r'https?://\S+\.m3u8\b', clipboard, re.IGNORECASE)
+            match = re.search(r'https?://\S+\.(m3u8|mp4)(\?\S*)?', clipboard, re.IGNORECASE)
             if match:
                 # 检测到 M3U8 链接，填入 URL 框，阻止默认粘贴
                 self.url_var.set(match.group())
