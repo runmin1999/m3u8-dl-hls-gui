@@ -139,6 +139,7 @@ app.py (GUI)          main.py (CLI)
 ```
 m3u8-dl-hls-gui/
 ├── app.py              # 主程序（CustomTkinter GUI）
+├── utils.py            # 工具函数（网络请求、配置、任务持久化）
 ├── main.py             # CLI 命令行入口
 ├── m3u8_parser.py      # M3U8 播放列表解析模块
 ├── downloader.py       # 多线程下载引擎

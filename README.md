@@ -139,6 +139,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (English) | [docs/ARCHITECTURE.
 ```
 m3u8-dl-hls-gui/
 ├── app.py              # Main application (CustomTkinter GUI)
+├── utils.py            # Utility functions (fetch, config, tasks)
 ├── main.py             # CLI entry point
 ├── m3u8_parser.py      # M3U8 playlist parser
 ├── downloader.py       # Multi-threaded download engine

@@ -1,4 +1,4 @@
-"""m3u8-dl-hls-gui v0.14 - CustomTkinter 桌面应用"""
+"""m3u8-dl-hls-gui v0.15 - CustomTkinter 桌面应用"""
 
 import os
 import sys
@@ -8,7 +8,6 @@ import hashlib
 import logging
 import shutil
 import time
-import ssl
 import re
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
@@ -19,6 +18,8 @@ import requests
 
 # 将当前目录加入 sys.path，确保模块导入正常
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from utils import fetch_m3u8, get_base_url, format_speed, load_config, save_config, save_tasks, load_tasks
 
 
 # ── 获取基础目录（兼容 PyInstaller 打包） ──
@@ -101,88 +102,13 @@ def get_default_output_dir():
     return downloads
 
 
-def load_config():
-    """从 config.json 加载用户配置"""
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
-
-
-def save_config(config):
-    """保存用户配置到 config.json"""
-    try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.warning(f"保存配置失败: {e}")
-
-
-def fetch_m3u8(url, headers=None, proxy=""):
-    """获取 m3u8 文件内容，带重试和SSL错误处理"""
-    req_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", **(headers or {})}
-    proxies = {"http": proxy, "https": proxy} if proxy else None
-    last_error = None
-
-    # 创建复用的 Session，减少连接建立开销
-    session = requests.Session()
-    session.headers.update(req_headers)
-    if proxies:
-        session.proxies.update(proxies)
-
-    # 最多重试 5 次，每次失败后递增等待时间
-    for attempt in range(1, 6):
-        try:
-            resp = session.get(url, timeout=30)
-            resp.raise_for_status()
-            return resp.text
-        except ssl.SSLError as e:
-            last_error = e
-            logger.warning(f"SSL错误 (第{attempt}次): {e}")
-            if attempt < 5:
-                time.sleep(attempt * 2)  # SSL 错误等待更久
-        except requests.exceptions.ConnectionError as e:
-            last_error = e
-            logger.warning(f"连接错误 (第{attempt}次): {e}")
-            if attempt < 5:
-                time.sleep(attempt)
-        except requests.exceptions.RequestException as e:
-            last_error = e
-            logger.warning(f"请求错误 (第{attempt}次): {e}")
-            if attempt < 5:
-                time.sleep(attempt)
-        except Exception as e:
-            last_error = e
-            logger.warning(f"未知错误 (第{attempt}次): {e}")
-            if attempt < 5:
-                time.sleep(attempt)
-    raise last_error
-
-
-def get_base_url(url):
-    """从完整 URL 中提取基础 URL（去掉最后一段路径，用于拼接相对路径）"""
-    return url.rsplit("/", 1)[0] + "/"
-
-
-def format_speed(bps):
-    """将字节/秒格式化为可读的速度字符串"""
-    if bps >= 1024 * 1024:
-        return f"速度: {bps / (1024 * 1024):.2f} MB/s"
-    elif bps >= 1024:
-        return f"速度: {bps / 1024:.2f} KB/s"
-    return f"速度: {bps} B/s"
-
-
 class DownloadTask:
     """下载任务数据模型，保存单个下载任务的所有状态"""
 
     def __init__(self, task_id, url, output_name, output_dir, workers, proxy, custom_headers):
         self.task_id = task_id                          # 任务唯一 ID（时间戳生成）
         self.url = url                                  # m3u8 链接
-        self.output_name = output_name or "output.ts"   # 输出文件名
+        self.output_name = output_name or "output.mp4"   # 输出文件名
         self.output_dir = output_dir or get_default_output_dir()  # 输出目录
         self.workers = workers                          # 并发线程数
         self.proxy = proxy                              # 代理地址
@@ -258,47 +184,38 @@ class DownloadTask:
 
 def _save_tasks(tasks_dict):
     """将所有任务保存到 tasks_history.json"""
-    try:
-        with open(TASKS_HISTORY_FILE, "w", encoding="utf-8") as f:
-            json.dump([t.to_dict() for t in tasks_dict.values()], f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.warning(f"保存任务失败: {e}")
+    save_tasks(tasks_dict, TASKS_HISTORY_FILE)
 
 
 def _load_tasks():
     """从 tasks_history.json 加载历史任务"""
     tasks = {}
-    if not os.path.exists(TASKS_HISTORY_FILE):
+    data = load_tasks(TASKS_HISTORY_FILE)
+    if not data:
         return tasks
-    try:
-        with open(TASKS_HISTORY_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        for item in data:
-            task = DownloadTask(
-                task_id=item.get("task_id", ""), url=item.get("url", ""),
-                output_name=item.get("output_name", "output.ts"),
-                output_dir=item.get("output_dir", ""), workers=item.get("workers", 20),
-                proxy=item.get("proxy", ""), custom_headers=item.get("custom_headers", {}),
-            )
-            task.status = item.get("status", "pending")
-            # 程序重启后，将"下载中"的任务标记为"已停止"
-            if task.status == "downloading":
-                task.status = "stopped"
-            task.progress = item.get("progress", 0)
-            task.total_segments = item.get("total_segments", 0)
-            task.downloaded_segments = item.get("downloaded_segments", 0)
-            task.current_action = item.get("current_action", "")
-            task.error = item.get("error", None)
-            task.output_path = item.get("output_path", None)
-            task.started_at = item.get("started_at", None)
-            task.finished_at = item.get("finished_at", None)
-            task._downloaded_indices = set(item.get("downloaded_indices", []))
-            task._mp4_downloaded = item.get("mp4_downloaded", 0)
-            task.available_resolutions = item.get("available_resolutions", ["最高分辨率"])
-            task.resolution = item.get("resolution", "最高分辨率")
-            tasks[task.task_id] = task
-    except Exception as e:
-        logger.warning(f"加载任务失败: {e}")
+    for item in data:
+        task = DownloadTask(
+            task_id=item.get("task_id", ""), url=item.get("url", ""),
+            output_name=item.get("output_name", "output.mp4"),
+            output_dir=item.get("output_dir", ""), workers=item.get("workers", 20),
+            proxy=item.get("proxy", ""), custom_headers=item.get("custom_headers", {}),
+        )
+        task.status = item.get("status", "pending")
+        if task.status == "downloading":
+            task.status = "stopped"
+        task.progress = item.get("progress", 0)
+        task.total_segments = item.get("total_segments", 0)
+        task.downloaded_segments = item.get("downloaded_segments", 0)
+        task.current_action = item.get("current_action", "")
+        task.error = item.get("error", None)
+        task.output_path = item.get("output_path", None)
+        task.started_at = item.get("started_at", None)
+        task.finished_at = item.get("finished_at", None)
+        task._downloaded_indices = set(item.get("downloaded_indices", []))
+        task._mp4_downloaded = item.get("mp4_downloaded", 0)
+        task.available_resolutions = item.get("available_resolutions", ["最高分辨率"])
+        task.resolution = item.get("resolution", "最高分辨率")
+        tasks[task.task_id] = task
     return tasks
 
 
@@ -327,29 +244,62 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
         headers.update(task.custom_headers)
         proxies = {"http": task.proxy, "https": task.proxy} if task.proxy else None
 
-        # 先探测文件大小和是否支持 Range
+        # 探测文件大小和支持 Range
         probe_headers = dict(headers)
-        resp = requests.head(task.url, headers=probe_headers, timeout=30, proxies=proxies)
-        total_size = int(resp.headers.get('content-length', 0))
-        accept_ranges = resp.headers.get('accept-ranges', '') == 'bytes'
+        total_size = 0
+        accept_ranges = False
 
+        # 方法1：HEAD 请求探测
+        try:
+            resp = requests.head(task.url, headers=probe_headers, timeout=15, proxies=proxies)
+            if resp.status_code == 200:
+                total_size = int(resp.headers.get('content-length', 0))
+                accept_ranges = resp.headers.get('accept-ranges', '') == 'bytes'
+        except Exception:
+            pass
+
+        # 方法2：GET 请求探测（HEAD 可能被服务器拒绝）
         if total_size == 0:
-            # HEAD 没返回大小，用 GET 探测
-            resp = requests.get(task.url, headers=probe_headers, timeout=30, stream=True, proxies=proxies)
-            total_size = int(resp.headers.get('content-length', 0))
-            resp.close()
+            try:
+                resp = requests.get(task.url, headers=probe_headers, timeout=15, stream=True, proxies=proxies)
+                if resp.status_code == 200:
+                    total_size = int(resp.headers.get('content-length', 0))
+                    accept_ranges = resp.headers.get('accept-ranges', '') == 'bytes'
+                resp.close()
+            except Exception:
+                pass
+
+        # 方法3：实际发送 Range 请求测试（最可靠）
+        if total_size > 0 and not accept_ranges:
+            try:
+                test_headers = dict(headers)
+                test_headers["Range"] = "bytes=0-0"
+                resp = requests.get(task.url, headers=test_headers, timeout=15, proxies=proxies)
+                if resp.status_code == 206:
+                    accept_ranges = True
+                    logger.info(f"服务器支持 Range（通过 206 响应确认）")
+                resp.close()
+            except Exception:
+                pass
 
         task.total_segments = total_size if total_size > 0 else 0
 
         # 检查已下载的部分（断点续传）
         existing_size = getattr(task, '_mp4_downloaded', 0)
         downloaded = 0
-        if existing_size > 0 and os.path.exists(tmp_path):
+        if existing_size > 0 and os.path.exists(tmp_path) and accept_ranges:
             file_size = os.path.getsize(tmp_path)
             if file_size == existing_size:
                 downloaded = file_size
+                logger.info(f"断点续传: 从 {downloaded / (1024*1024):.1f} MB 继续")
             else:
+                # 文件大小不匹配，从头开始
                 existing_size = 0
+                logger.info(f"文件大小不匹配，从头下载")
+        elif existing_size > 0 and not accept_ranges:
+            # 服务器不支持 Range，从头下载
+            existing_size = 0
+            logger.info(f"服务器不支持 Range，从头下载")
 
         task.downloaded_segments = downloaded
         task.current_action = "下载中..."
@@ -423,10 +373,15 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
                 if start < total_size:
                     chunks.append((start, end, i))
 
-            # 创建 .tmp 文件并预分配空间
-            with open(tmp_path, "wb") as f:
-                if total_size > 0:
-                    f.truncate(total_size)
+            # 创建或复用 .tmp 文件
+            if downloaded > 0 and os.path.exists(tmp_path):
+                # 断点续传：保留已有数据
+                logger.info(f"断点续传: 从 {downloaded / (1024*1024):.1f} MB 处继续")
+            else:
+                # 新下载：创建文件并预分配空间
+                with open(tmp_path, "wb") as f:
+                    if total_size > 0:
+                        f.truncate(total_size)
 
             completed_chunks = 0
             _dl_downloaded = [downloaded]
@@ -929,12 +884,12 @@ class App(ctk.CTk):
 
     def __init__(self):
         super().__init__()
-        self.title("m3u8-dl-hls-gui v0.14")
+        self.title("m3u8-dl-hls-gui v0.15")
         self.geometry("930x620")
         self.minsize(750, 500)
         self.configure(fg_color=COLORS["bg"])
 
-        self.config_data = load_config()      # 加载用户配置
+        self.config_data = load_config(CONFIG_FILE)      # 加载用户配置
         self.tasks = _load_tasks()            # 加载历史任务
         self.task_cards = {}                  # task_id → TaskCard 映射
 
@@ -1054,7 +1009,7 @@ class App(ctk.CTk):
             "proxy": self.proxy_var.get().strip(),
             "headers": self.referer_var.get().strip(),
         }
-        save_config(self.config_data)
+        save_config(self.config_data, CONFIG_FILE)
 
     def _browse_dir(self):
         """打开目录选择对话框"""
@@ -1136,8 +1091,9 @@ class App(ctk.CTk):
             if not output_name.lower().endswith(".mp4"):
                 output_name += ".mp4"
         else:
-            if not output_name.lower().endswith(".ts"):
-                output_name += ".ts"
+            # M3U8 下载也输出为 .mp4（TS 合并后兼容性更好）
+            if not output_name.lower().endswith(".mp4"):
+                output_name += ".mp4"
         try:
             workers = max(1, min(100, int(self.workers_var.get())))
         except ValueError:

@@ -72,9 +72,9 @@ def merge_to_ts(
         file_part = "output.ts"
     output_path = os.path.join(dir_part, file_part)
 
-    # 确保扩展名是 .ts
-    if not output_path.lower().endswith(".ts"):
-        output_path += ".ts"
+    # 确保扩展名是 .mp4
+    if not output_path.lower().endswith(".mp4"):
+        output_path += ".mp4"
 
     if not merge_ts_files(ts_files, output_path):
         raise RuntimeError("TS 分片合并失败")
