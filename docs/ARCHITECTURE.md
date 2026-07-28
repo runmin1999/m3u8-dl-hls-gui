@@ -9,13 +9,14 @@ This document describes the internal workflow and technical principles of each c
 ## Table of Contents
 
 1. [M3U8 Parsing](#1-m3u8-parsing)
-2. [Multi-threaded Download](#2-multi-threaded-download)
-3. [AES-128 Decryption](#3-aes-128-decryption)
-4. [Resume Support](#4-resume-support)
-5. [Resolution Selection](#5-resolution-selection)
-6. [Proxy Support](#6-proxy-support)
-7. [Custom Headers](#7-custom-headers)
-8. [Complete Download Flow](#8-complete-download-flow)
+2. [Multi-threaded Download (M3U8)](#2-multi-threaded-download-m3u8)
+3. [MP4 Direct Download](#3-mp4-direct-download)
+4. [AES-128 Decryption](#4-aes-128-decryption)
+5. [Resume Support](#5-resume-support)
+6. [Resolution Selection](#6-resolution-selection)
+7. [Proxy Support](#7-proxy-support)
+8. [Custom Headers](#8-custom-headers)
+9. [Complete Download Flow](#9-complete-download-flow)
 
 ---
 
@@ -103,7 +104,7 @@ M3U8 text content
 
 ---
 
-## 2. Multi-threaded Download
+## 2. Multi-threaded Download (M3U8)
 
 ### 2.1 Architecture
 
@@ -184,9 +185,61 @@ with _lock:
 
 ---
 
-## 3. AES-128 Decryption
+## 3. MP4 Direct Download
 
-### 3.1 Encryption Principle
+### 3.1 Overview
+
+MP4 direct download uses HTTP Range requests for multi-threaded parallel downloading of a single file.
+
+### 3.2 Range Support Detection
+
+```
+Probe server support:
+    │
+    ├── 1. HEAD request → check Accept-Ranges header
+    ├── 2. GET request → fallback if HEAD fails
+    └── 3. Range test → send Range: bytes=0-0, check for 206 response
+         │
+         ├── 206 Partial Content → supports Range ✓
+         └── 200 OK → doesn't support Range ✗
+```
+
+### 3.3 Multi-threaded Range Download
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    MP4 Download                          │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  File: 100MB, Workers: 4                                │
+│                                                         │
+│  T1: Range bytes=0-24999999      → 0-25MB              │
+│  T2: Range bytes=25000000-49999999 → 25-50MB            │
+│  T3: Range bytes=50000000-74999999 → 50-75MB            │
+│  T4: Range bytes=75000000-99999999 → 75-100MB           │
+│                                                         │
+│  Each thread writes directly to file at correct offset  │
+│  using seek() + write()                                 │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 3.4 Resume Support
+
+```
+Resume flow:
+    │
+    ├── Check _mp4_downloaded (saved progress)
+    ├── Check .tmp file exists and size matches
+    ├── If match → Range: bytes=<downloaded>- (continue)
+    └── If no match → start from beginning
+```
+
+---
+
+## 4. AES-128 Decryption
+
+### 4.1 Encryption Principle
 
 HLS uses AES-128-CBC mode to encrypt TS segments:
 
@@ -205,7 +258,7 @@ Plaintext data (TS segment)
 └─────────────────────────────────┘
 ```
 
-### 3.2 Decryption Flow
+### 4.2 Decryption Flow
 
 ```
 EXT-X-KEY tag from M3U8
@@ -251,7 +304,7 @@ EXT-X-KEY tag from M3U8
 └──────────────────────────────┘
 ```
 
-### 3.3 PKCS7 Padding
+### 4.3 PKCS7 Padding
 
 AES requires data length to be a multiple of 16. PKCS7 pads the end:
 
@@ -264,7 +317,7 @@ Original data (16 bytes):  [A][B][C][D][E][F][G][H][I][J][K][L][M][N][O][P]
 PKCS7 pad 16 bytes:        [A][B][C][D][E][F][G][H][I][J][K][L][M][N][O][P][10]...[10]
 ```
 
-### 3.4 Key Caching
+### 4.4 Key Caching
 
 ```
 1st encrypted segment
@@ -290,16 +343,16 @@ key_url in cache? → hit → return directly (skip network request)
 
 ---
 
-## 4. Resume Support
+## 5. Resume Support
 
-### 4.1 Principle
+### 5.1 Principle
 
 Resume support is based on two key designs:
 
 1. **Atomic writes**: Each segment is written to `.tmp` then renamed, ensuring downloaded `.ts` files are always complete
 2. **Index set**: Tracks which segment indices have been successfully downloaded
 
-### 4.2 Flow
+### 5.2 Flow
 
 ```
 Task start / resume
@@ -339,7 +392,7 @@ Task start / resume
 └──────────────────────────────┘
 ```
 
-### 4.3 Pause / Resume Mechanism
+### 5.3 Pause / Resume Mechanism
 
 ```
 User clicks "Pause"
@@ -379,9 +432,9 @@ User clicks "Pause"
 
 ---
 
-## 5. Resolution Selection
+## 6. Resolution Selection
 
-### 5.1 Flow
+### 6.1 Flow
 
 ```
 User inputs M3U8 URL
@@ -421,7 +474,7 @@ Fetch selected bitrate's Media Playlist
 Continue download flow...
 ```
 
-### 5.2 Per-task Independence
+### 6.2 Per-task Independence
 
 Each task card has its own resolution dropdown, independent of others:
 
@@ -433,9 +486,9 @@ Task C: [Highest ▼] ← independent
 
 ---
 
-## 6. Proxy Support
+## 7. Proxy Support
 
-### 6.1 Configuration
+### 7.1 Configuration
 
 ```
 User enters proxy address in GUI
@@ -450,7 +503,7 @@ User enters proxy address in GUI
     ▼ Auto-saved to config.json
 ```
 
-### 6.2 Where Proxy is Applied
+### 7.2 Where Proxy is Applied
 
 Proxy configuration is passed to all network requests:
 
@@ -469,7 +522,7 @@ proxies = {
 }
 ```
 
-### 6.3 Request Chain
+### 7.3 Request Chain
 
 ```
 App → HTTP Proxy Server → Target Server
@@ -482,9 +535,9 @@ App → HTTP Proxy Server → Target Server
 
 ---
 
-## 7. Custom Headers
+## 8. Custom Headers
 
-### 7.1 Referer Anti-hotlinking
+### 8.1 Referer Anti-hotlinking
 
 Many video servers check the Referer header to prevent hotlinking:
 
@@ -511,7 +564,7 @@ headers = {
 }
 ```
 
-### 7.2 Where Headers are Applied
+### 8.2 Where Headers are Applied
 
 ```
 User fills in Referer
@@ -529,7 +582,7 @@ Written to task.custom_headers on task creation
 
 ---
 
-## 8. Complete Download Flow
+## 9. Complete Download Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
