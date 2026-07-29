@@ -169,6 +169,15 @@ m3u8-dl-hls-gui/
 
 ## 更新日志
 
+### v0.17
+
+- 🔧 **fMP4 支持** — 下载 fragmented MP4 流（.m4s 分片 + init segment）
+- 🔧 **EXT-X-MAP** — 解析 fMP4 初始化段
+- 🔧 **EXT-X-BYTERANGE** — 支持字节范围分片
+- 🔧 **音频轨道选择** — 从多个音频轨道中选择
+- 🔧 **字幕轨道检测** — 检测字幕轨道（仅显示）
+- 🔧 **FFmpeg mux** — 合并独立的音视频轨道为单个 MP4
+
 ### v0.16
 
 - 🔧 **FFmpeg remux** — 使用 FFmpeg `-c copy` 模式将 TS 分片 remux 为真正 MP4 容器，兼容所有播放器和剪辑软件

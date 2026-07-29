@@ -169,6 +169,15 @@ m3u8-dl-hls-gui/
 
 ## Changelog
 
+### v0.17
+
+- 🔧 **fMP4 support** — Download fragmented MP4 streams (.m4s segments + init segment)
+- 🔧 **EXT-X-MAP** — Parse init segment for fMP4 streams
+- 🔧 **EXT-X-BYTERANGE** — Support byte-range based segmentation
+- 🔧 **Audio track selection** — Choose from multiple audio tracks in master playlist
+- 🔧 **Subtitle track detection** — Detect subtitle tracks (display only)
+- 🔧 **FFmpeg mux** — Combine separate audio/video tracks into single MP4
+
 ### v0.16
 
 - 🔧 **FFmpeg remux** — Use FFmpeg `-c copy` to remux TS segments into real MP4 container, compatible with all players and editors
