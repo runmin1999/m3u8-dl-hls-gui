@@ -8,7 +8,7 @@ from typing import List, Optional
 
 @dataclass
 class Segment:
-    """TS 分片信息"""
+    """TS/fMP4 分片信息"""
     url: str                    # 分片下载地址
     duration: float = 0.0       # 分片时长（秒）
     index: int = 0              # 分片序号（从 0 开始）
@@ -16,6 +16,8 @@ class Segment:
     encryption_method: str = "" # 加密方式："AES-128" 或空（无加密）
     key_url: str = ""           # 密钥下载地址
     iv: bytes = b""             # 初始化向量（16 字节）
+    # EXT-X-BYTERANGE 支持
+    byterange: str = ""         # 字节范围（如 "1000@0"：长度@偏移）
 
 
 @dataclass
@@ -143,6 +145,8 @@ def _parse_media(lines: list, base_url: str, playlist: M3U8Playlist):
     enc_method = ""
     key_url = ""
     iv = b""
+    current_byterange = ""
+    last_seg_url = ""  # 用于 BYTERANGE 引用前一个分片 URL
 
     for line in lines:
         line = line.strip()
@@ -164,6 +168,10 @@ def _parse_media(lines: list, base_url: str, playlist: M3U8Playlist):
             playlist.init_segment_url = _resolve_url(base_url, attrs.get("URI", ""))
             playlist.init_segment_byterange = attrs.get("BYTERANGE", "")
 
+        elif line.startswith("#EXT-X-BYTERANGE:"):
+            # 字节范围：格式为 长度@偏移（如 "1000@0"）
+            current_byterange = line[len("#EXT-X-BYTERANGE:"):]
+
         elif line.startswith("#EXT-X-KEY:"):
             # 解析加密信息：METHOD=AES-128, URI="key.bin", IV=0x...
             attrs = _parse_attributes(line[len("#EXT-X-KEY:"):])
@@ -184,19 +192,26 @@ def _parse_media(lines: list, base_url: str, playlist: M3U8Playlist):
             current_duration = float(duration_part.split(",")[0])
 
         elif not line.startswith("#"):
-            # 非注释行 = TS 分片 URL，关联当前的时长和加密信息
+            # 非注释行 = TS/fMP4 分片 URL，关联当前的时长、加密和字节范围信息
+            seg_url = _resolve_url(base_url, line)
+            # BYTERANGE 模式：如果指定了字节范围，URL 沿用前一个分片
+            if current_byterange and last_seg_url:
+                seg_url = last_seg_url
             seg = Segment(
-                url=_resolve_url(base_url, line),
+                url=seg_url,
                 duration=current_duration,
                 index=seg_index,
                 encryption_method=enc_method,
                 key_url=key_url,
                 iv=iv,
+                byterange=current_byterange,
             )
             playlist.segments.append(seg)
             playlist.total_duration += current_duration
+            last_seg_url = seg_url
             seg_index += 1
             current_duration = 0.0
+            current_byterange = ""
 
     playlist.encryption_method = enc_method
     playlist.key_url = key_url
