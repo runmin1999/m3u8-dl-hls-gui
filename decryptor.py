@@ -60,6 +60,7 @@ def decrypt_segment(
     encrypted_data: bytes,
     key: bytes,
     iv: bytes,
+    media_sequence: int = 0,
 ) -> bytes:
     """
     使用 AES-128-CBC 模式解密数据
@@ -67,19 +68,20 @@ def decrypt_segment(
     AES-128-CBC 加密特点：
     - 密钥长度 16 字节
     - 使用 PKCS7 填充（解密后需去除）
-    - IV 为空时使用 16 字节 0x00 作为默认 IV
+    - IV 缺失时使用 MEDIA-SEQUENCE 编码为 128-bit big-endian（HLS 规范）
 
     Args:
         encrypted_data: 加密的二进制数据
         key: 16 字节 AES 密钥
-        iv: 16 字节初始化向量（为空则使用默认 IV）
+        iv: 16 字节初始化向量（为空则使用 MEDIA-SEQUENCE）
+        media_sequence: EXT-X-MEDIA-SEQUENCE 值
 
     Returns:
         解密后的数据（已去除 PKCS7 填充）
     """
     if not iv:
-        # 默认 IV：16 字节全零
-        iv = b'\x00' * 16
+        # HLS 规范：IV 缺失时使用 MEDIA-SEQUENCE 编码为 128-bit big-endian
+        iv = media_sequence.to_bytes(16, byteorder='big')
 
     cipher = AES.new(key, AES.MODE_CBC, iv)
     decrypted = cipher.decrypt(encrypted_data)
@@ -112,6 +114,7 @@ def decrypt_files(
     segments: List[Segment],
     headers: dict = None,
     proxy: str = "",
+    media_sequence: int = 0,
 ) -> List[str]:
     """
     批量解密 TS 分片文件
@@ -124,6 +127,7 @@ def decrypt_files(
         segments: 对应的分片信息列表（包含加密方式、密钥 URL、IV）
         headers: 自定义请求头
         proxy: 代理地址
+        media_sequence: EXT-X-MEDIA-SEQUENCE 值（用于生成默认 IV）
 
     Returns:
         解密后的文件路径列表（与输入相同）
@@ -142,8 +146,10 @@ def decrypt_files(
             # 读取加密数据
             with open(filepath, "rb") as f:
                 encrypted_data = f.read()
+            # 使用分片自己的 IV，如果没有则用 media_sequence
+            iv = seg.iv if seg.iv else media_sequence.to_bytes(16, byteorder='big')
             # AES-128-CBC 解密
-            decrypted_data = decrypt_segment(encrypted_data, key, seg.iv)
+            decrypted_data = decrypt_segment(encrypted_data, key, iv, media_sequence=0)
             # 覆盖写回原文件
             with open(filepath, "wb") as f:
                 f.write(decrypted_data)

@@ -615,7 +615,7 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
             task.current_action = "解密中..."
             if on_progress:
                 on_progress(task)
-            ts_files = decrypt_files(ts_files, playlist.segments, task.custom_headers, task.proxy)
+            ts_files = decrypt_files(ts_files, playlist.segments, task.custom_headers, task.proxy, media_sequence=playlist.media_sequence)
 
         if task._stop_flag:
             return
