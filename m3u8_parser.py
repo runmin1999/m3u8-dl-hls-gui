@@ -39,6 +39,7 @@ class M3U8Playlist:
     encryption_method: str = ""
     key_url: str = ""
     iv: bytes = b""
+    media_sequence: int = 0  # EXT-X-MEDIA-SEQUENCE 值（分片起始序号）
 
 
 def parse_m3u8(content: str, base_url: str = "") -> M3U8Playlist:
@@ -134,7 +135,7 @@ def _parse_media(lines: list, base_url: str, playlist: M3U8Playlist):
     segment001.ts
     """
     current_duration = 0.0
-    seg_index = 0
+    seg_index = playlist.media_sequence
     # 当前生效的加密参数（EXT-X-KEY 会向下传递给后续分片，直到遇到新的 EXT-X-KEY）
     enc_method = ""
     key_url = ""
@@ -148,6 +149,11 @@ def _parse_media(lines: list, base_url: str, playlist: M3U8Playlist):
         if line.startswith("#EXT-X-TARGETDURATION:"):
             # 每个分片的目标最大时长（秒）
             playlist.target_duration = float(line.split(":")[1])
+
+        elif line.startswith("#EXT-X-MEDIA-SEQUENCE:"):
+            # 分片起始序号（直播流/时移流使用）
+            playlist.media_sequence = int(line.split(":")[1])
+            seg_index = playlist.media_sequence
 
         elif line.startswith("#EXT-X-KEY:"):
             # 解析加密信息：METHOD=AES-128, URI="key.bin", IV=0x...
