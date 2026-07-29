@@ -89,11 +89,21 @@ def download_segment(
                 except OSError:
                     pass
 
+            # 构建请求头（支持 BYTERANGE）
+            req_headers = {}
+            if segment.byterange:
+                parts = segment.byterange.split("@")
+                length = int(parts[0])
+                offset = int(parts[1]) if len(parts) > 1 else 0
+                end = offset + length - 1
+                req_headers["Range"] = f"bytes={offset}-{end}"
+
             # 流式下载（不一次性加载到内存）
             resp = session.get(
                 segment.url,
                 timeout=REQUEST_TIMEOUT,
                 stream=True,
+                headers=req_headers,
             )
             resp.raise_for_status()
             # 写入临时文件
@@ -120,6 +130,72 @@ def download_segment(
                 time.sleep(wait)
             else:
                 logger.error(f"分片 {segment.index} 下载失败，已达最大重试次数: {e}")
+    return False
+
+
+def download_init_segment(
+    init_url: str,
+    save_path: str,
+    session: requests.Session,
+    byterange: str = "",
+    stop_check: Optional[Callable[[], bool]] = None,
+) -> bool:
+    """
+    下载 fMP4 初始化段（init segment）
+
+    Args:
+        init_url: init segment 的下载地址
+        save_path: 保存路径
+        session: 复用的 requests Session
+        byterange: 字节范围（如 "812@0"），为空则下载完整文件
+        stop_check: 停止检查函数
+
+    Returns:
+        是否下载成功
+    """
+    tmp_path = save_path + ".tmp"
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        if stop_check and stop_check():
+            return False
+        try:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
+            req_headers = {}
+            if byterange:
+                parts = byterange.split("@")
+                length = int(parts[0])
+                offset = int(parts[1]) if len(parts) > 1 else 0
+                end = offset + length - 1
+                req_headers["Range"] = f"bytes={offset}-{end}"
+
+            resp = session.get(init_url, timeout=REQUEST_TIMEOUT, stream=True, headers=req_headers)
+            resp.raise_for_status()
+
+            with open(tmp_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                    if stop_check and stop_check():
+                        return False
+
+            os.replace(tmp_path, save_path)
+            logger.info(f"Init segment 下载完成: {save_path}")
+            return True
+        except (requests.RequestException, OSError, PermissionError) as e:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            if attempt < MAX_RETRIES:
+                time.sleep(attempt * 1)
+            else:
+                logger.error(f"Init segment 下载失败: {e}")
     return False
 
 
