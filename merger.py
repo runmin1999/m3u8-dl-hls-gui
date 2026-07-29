@@ -1,11 +1,130 @@
-"""合并模块：使用 FFmpeg 将 TS 分片 remux 为 MP4"""
+"""合并模块：使用 FFmpeg 将 TS 分片 remux 为 MP4，支持 fMP4 拼接和音视频 mux"""
 
 import os
+import shutil
 import logging
 import subprocess
 from typing import List
 
 logger = logging.getLogger(__name__)
+
+
+def merge_fmp4(
+    init_path: str,
+    media_files: List[str],
+    output_path: str,
+) -> str:
+    """
+    合并 fMP4 初始化段和媒体分片
+
+    fMP4 分片可以直接二进制拼接（init + media segments），
+    生成完整的 fMP4 文件。
+
+    Args:
+        init_path: 初始化段文件路径（可为空）
+        media_files: 媒体分片文件路径列表（按顺序）
+        output_path: 输出文件路径
+
+    Returns:
+        输出文件路径
+    """
+    if not media_files:
+        raise ValueError("没有可合并的媒体分片")
+
+    # 清理输出路径
+    illegal_chars = '<>:"/\\|?*\n\r\t'
+    dir_part = os.path.dirname(output_path)
+    file_part = os.path.basename(output_path)
+    for ch in illegal_chars:
+        file_part = file_part.replace(ch, '_')
+    file_part = file_part.strip('. ')
+    if not file_part:
+        file_part = "output.mp4"
+    output_path = os.path.join(dir_part, file_part)
+    if not output_path.lower().endswith(".mp4"):
+        output_path += ".mp4"
+
+    try:
+        with open(output_path, "wb") as out_f:
+            # 写入 init segment（moov atom）
+            if init_path and os.path.exists(init_path):
+                with open(init_path, "rb") as in_f:
+                    shutil.copyfileobj(in_f, out_f)
+            # 写入所有 media segments
+            for mf in media_files:
+                with open(mf, "rb") as in_f:
+                    shutil.copyfileobj(in_f, out_f)
+
+        logger.info(f"fMP4 合并完成: {output_path}")
+        return output_path
+    except Exception as e:
+        logger.error(f"fMP4 合并失败: {e}")
+        raise
+
+
+def mux_audio_video(
+    video_path: str,
+    audio_path: str,
+    output_path: str,
+) -> str:
+    """
+    使用 FFmpeg 合并视频和音频轨道
+
+    Args:
+        video_path: 视频文件路径
+        audio_path: 音频文件路径
+        output_path: 输出文件路径
+
+    Returns:
+        输出文件路径
+    """
+    # 清理输出路径
+    illegal_chars = '<>:"/\\|?*\n\r\t'
+    dir_part = os.path.dirname(output_path)
+    file_part = os.path.basename(output_path)
+    for ch in illegal_chars:
+        file_part = file_part.replace(ch, '_')
+    file_part = file_part.strip('. ')
+    if not file_part:
+        file_part = "output.mp4"
+    output_path = os.path.join(dir_part, file_part)
+    if not output_path.lower().endswith(".mp4"):
+        output_path += ".mp4"
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-i", audio_path,
+        "-c", "copy",
+        "-movflags", "+faststart",
+        output_path,
+    ]
+
+    try:
+        startupinfo = None
+        if os.name == "nt":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=600,
+            startupinfo=startupinfo,
+        )
+
+        if result.returncode != 0:
+            logger.error(f"FFmpeg mux 失败: {result.stderr[-500:]}")
+            raise RuntimeError("FFmpeg mux 失败")
+
+        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+            raise RuntimeError("FFmpeg mux 输出文件为空")
+
+        logger.info(f"FFmpeg mux 完成: {output_path}")
+        return output_path
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("FFmpeg mux 超时")
+    except FileNotFoundError:
+        raise RuntimeError("未找到 FFmpeg")
 
 
 def merge_ts_files(ts_files: List[str], output_path: str) -> bool:
