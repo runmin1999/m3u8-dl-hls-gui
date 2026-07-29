@@ -267,6 +267,54 @@ def download_all(
 
     session.close()
 
+    # ── 验证分片总数 ──
+    expected_count = len(segments)
+    downloaded_count = len(results)
+    if downloaded_count < expected_count:
+        missing = [s.index for s in segments if s.index not in results]
+        logger.warning(f"分片验证: 预期 {expected_count} 个，已下载 {downloaded_count} 个，缺失 {len(missing)} 个")
+
+        # ── 失败分片二次重试 ──
+        if missing and not (stop_check and stop_check()):
+            logger.info(f"二次重试 {len(missing)} 个失败分片")
+            retry_tasks = []
+            for seg in segments:
+                if seg.index in missing:
+                    filename = f"{seg.index:06d}.ts"
+                    filepath = os.path.join(temp_dir, filename)
+                    retry_tasks.append((seg, filepath))
+
+            if retry_tasks:
+                retry_session = _create_session(headers, proxy)
+                with ThreadPoolExecutor(max_workers=min(max_workers, len(retry_tasks))) as retry_executor:
+                    retry_futures = {}
+                    for seg, filepath in retry_tasks:
+                        if stop_check and stop_check():
+                            break
+                        future = retry_executor.submit(
+                            download_segment, seg, filepath, retry_session, stop_check
+                        )
+                        retry_futures[future] = (seg, filepath)
+
+                    for future in as_completed(retry_futures):
+                        seg, filepath = retry_futures[future]
+                        success = future.result()
+                        with _lock:
+                            if success:
+                                results[seg.index] = filepath
+                                completed += 1
+                                try:
+                                    seg_size = os.path.getsize(filepath)
+                                except OSError:
+                                    seg_size = 0
+                                bytes_downloaded += seg_size
+                            else:
+                                logger.error(f"分片 {seg.index} 二次重试仍失败")
+                        if progress_callback:
+                            progress_callback(completed, total)
+
+                retry_session.close()
+
     # 最终速度回调
     if speed_callback:
         speed_callback(completed, bytes_downloaded)
