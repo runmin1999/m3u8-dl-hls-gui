@@ -903,7 +903,7 @@ class App(ctk.CTk):
 
     def __init__(self):
         super().__init__()
-        self.title("m3u8-dl-hls-gui v0.15")
+        self.title("m3u8-dl-hls-gui v0.16")
         self.geometry("930x620")
         self.minsize(750, 500)
         self.configure(fg_color=COLORS["bg"])

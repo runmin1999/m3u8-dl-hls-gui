@@ -167,6 +167,55 @@ m3u8-dl-hls-gui/
 }
 ```
 
+## Changelog
+
+### v0.16
+
+- 🔧 **FFmpeg remux** — Use FFmpeg `-c copy` to remux TS segments into real MP4 container, compatible with all players and editors
+- 🔧 **EXT-X-MEDIA-SEQUENCE** — Correctly parse segment start sequence for live/time-shifted streams
+- 🔧 **AES IV fix** — Use MEDIA-SEQUENCE encoded as 128-bit big-endian when IV is not provided (per HLS spec)
+- 🔧 **Segment verification** — Verify total segment count after download, auto-retry failed segments
+- 🔧 **Output validation** — Check file size and duration reasonability after merge
+- 🔧 **FFmpeg detection** — Check FFmpeg availability at startup, fallback to simple concat if missing
+
+### v0.15
+
+- 🔧 MP4 direct download (multi-threaded Range, resume support)
+- 🔧 Auto-detect M3U8 / MP4 links
+- 🔧 Custom right-click context menu (copy link, open directory, delete task)
+- 🔧 Fast pause/stop response (<0.5s)
+- 🔧 Delete with background cleanup (non-blocking UI)
+- 🔧 Ctrl+V smart paste
+- 🔧 Code refactoring (extracted utils.py)
+
+### v0.14
+
+- 🔧 Right-click context menu (custom rounded style)
+- 🔧 Fast pause/stop response (64KB granularity)
+- 🔧 Delete with background cleanup
+
+### v0.13
+
+- 🔧 Auto-detect M3U8 links from clipboard
+- 🔧 M3U8 output format changed to .mp4
+
+### v0.12
+
+- 🔧 Code refactoring: extracted utils.py
+
+### v0.11
+
+- 🔧 MP4 direct download (multi-threaded Range)
+- 🔧 Range support detection (HEAD → GET → 206 test)
+
+### v0.10
+
+- 🔧 First release
+- 🔧 M3U8 parsing and multi-threaded download
+- 🔧 AES-128 transparent decryption
+- 🔧 Resolution selection
+- 🔧 CustomTkinter dark theme GUI
+
 ## Acknowledgments
 
 Core modules (M3U8 parsing, multi-threaded downloading, AES-128 decryption, TS merging) are based on [sdlw7757/M3U8-down](https://github.com/sdlw7757/M3U8-down). The original project uses a Flask + WebSocket web interface. This project rewrites the GUI as a CustomTkinter desktop application and adds MP4 download, PyInstaller packaging, resolution selection, clipboard auto-detect, and auto-save settings.
