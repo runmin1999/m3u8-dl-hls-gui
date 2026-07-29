@@ -40,6 +40,9 @@ class M3U8Playlist:
     key_url: str = ""
     iv: bytes = b""
     media_sequence: int = 0  # EXT-X-MEDIA-SEQUENCE 值（分片起始序号）
+    # fMP4 初始化段信息
+    init_segment_url: str = ""           # EXT-X-MAP URI（init segment 地址）
+    init_segment_byterange: str = ""     # EXT-X-MAP BYTERANGE（如 "812@0"）
 
 
 def parse_m3u8(content: str, base_url: str = "") -> M3U8Playlist:
@@ -154,6 +157,12 @@ def _parse_media(lines: list, base_url: str, playlist: M3U8Playlist):
             # 分片起始序号（直播流/时移流使用）
             playlist.media_sequence = int(line.split(":")[1])
             seg_index = playlist.media_sequence
+
+        elif line.startswith("#EXT-X-MAP:"):
+            # fMP4 初始化段（init segment）
+            attrs = _parse_attributes(line[len("#EXT-X-MAP:"):])
+            playlist.init_segment_url = _resolve_url(base_url, attrs.get("URI", ""))
+            playlist.init_segment_byterange = attrs.get("BYTERANGE", "")
 
         elif line.startswith("#EXT-X-KEY:"):
             # 解析加密信息：METHOD=AES-128, URI="key.bin", IV=0x...
