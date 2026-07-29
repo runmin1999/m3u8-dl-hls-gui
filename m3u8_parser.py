@@ -22,11 +22,14 @@ class Segment:
 
 @dataclass
 class StreamInfo:
-    """多码率流信息（master playlist 中的条目）"""
+    """流信息（master playlist 中的条目）"""
     bandwidth: int = 0      # 码率（bps）
     resolution: str = ""    # 分辨率（如 "1920x1080"）
     url: str = ""           # 对应 media playlist 的 URL
     name: str = ""          # 流名称（用于 UI 显示）
+    track_type: str = "VIDEO"  # 轨道类型：VIDEO / AUDIO / SUBTITLES
+    language: str = ""         # 语言代码（如 "en", "zh"）
+    default: bool = False      # 是否为默认轨道
 
 
 @dataclass
@@ -45,6 +48,9 @@ class M3U8Playlist:
     # fMP4 初始化段信息
     init_segment_url: str = ""           # EXT-X-MAP URI（init segment 地址）
     init_segment_byterange: str = ""     # EXT-X-MAP BYTERANGE（如 "812@0"）
+    # 音频/字幕轨道列表
+    audio_tracks: List[StreamInfo] = field(default_factory=list)
+    subtitle_tracks: List[StreamInfo] = field(default_factory=list)
 
 
 def parse_m3u8(content: str, base_url: str = "") -> M3U8Playlist:
@@ -112,13 +118,21 @@ def _parse_master(lines: list, base_url: str, playlist: M3U8Playlist):
                 current_stream.name = f"{current_stream.bandwidth}bps"
 
         elif line.startswith("#EXT-X-MEDIA:"):
-            # 处理独立音频/字幕轨道，这里只提取音频轨道
+            # 提取音频/字幕轨道
             attrs = _parse_attributes(line[len("#EXT-X-MEDIA:"):])
-            if attrs.get("TYPE") == "AUDIO" and "URI" in attrs:
+            track_type = attrs.get("TYPE", "")
+            uri = attrs.get("URI", "")
+            if uri and track_type in ("AUDIO", "SUBTITLES"):
                 stream = StreamInfo()
-                stream.name = attrs.get("NAME", "Audio")
-                stream.url = _resolve_url(base_url, attrs["URI"])
-                playlist.streams.append(stream)
+                stream.track_type = track_type
+                stream.name = attrs.get("NAME", track_type)
+                stream.language = attrs.get("LANGUAGE", "")
+                stream.default = attrs.get("DEFAULT", "NO") == "YES"
+                stream.url = _resolve_url(base_url, uri)
+                if track_type == "AUDIO":
+                    playlist.audio_tracks.append(stream)
+                elif track_type == "SUBTITLES":
+                    playlist.subtitle_tracks.append(stream)
 
         elif not line.startswith("#") and current_stream is not None:
             # 非注释行 = 码率流对应的 Media Playlist URL
