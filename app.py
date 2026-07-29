@@ -131,6 +131,8 @@ class DownloadTask:
         self._download_speed = 0                        # 下载速度（字节/秒）
         self._dl_id = 0                                 # 下载会话 ID（用于区分新旧线程）
         self.available_resolutions = ["最高分辨率"]     # 可用分辨率列表
+        self.audio_track = ""                           # 选择的音频轨道名称
+        self.available_audio_tracks = []                # 可用音频轨道列表
 
     @property
     def download_speed(self):
@@ -179,6 +181,8 @@ class DownloadTask:
             "mp4_downloaded": getattr(self, '_mp4_downloaded', 0),
             "available_resolutions": getattr(self, 'available_resolutions', ["最高分辨率"]),
             "resolution": getattr(self, 'resolution', "最高分辨率"),
+            "audio_track": getattr(self, 'audio_track', ""),
+            "available_audio_tracks": getattr(self, 'available_audio_tracks', []),
         }
 
 
@@ -215,6 +219,8 @@ def _load_tasks():
         task._mp4_downloaded = item.get("mp4_downloaded", 0)
         task.available_resolutions = item.get("available_resolutions", ["最高分辨率"])
         task.resolution = item.get("resolution", "最高分辨率")
+        task.audio_track = item.get("audio_track", "")
+        task.available_audio_tracks = item.get("available_audio_tracks", [])
         tasks[task.task_id] = task
     return tasks
 
@@ -534,6 +540,12 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
         if not playlist.segments:
             raise Exception("未找到TS分片")
 
+        # 检测格式：fMP4 还是 TS
+        is_fmp4 = bool(playlist.init_segment_url)
+        if not is_fmp4 and playlist.segments:
+            sample_url = playlist.segments[0].url.lower()
+            is_fmp4 = sample_url.endswith('.m4s') or (sample_url.endswith('.mp4') and playlist.init_segment_url)
+
         # 步骤3：准备下载参数
         task.total_segments = len(playlist.segments)
         has_enc = any(s.encryption_method for s in playlist.segments)
@@ -591,46 +603,114 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
             if on_progress:
                 on_progress(task)
 
-        # 步骤4：多线程下载所有 TS 分片
-        ts_files = download_all(
-            playlist.segments, temp_dir, max_workers=task.workers,
-            headers=task.custom_headers, proxy=task.proxy,
-            progress_callback=progress_callback, stop_check=stop_check,
-            skip_indices=task._downloaded_indices, speed_callback=speed_callback,
-        )
+        # 步骤4：下载分片（根据格式选择不同流程）
+        if is_fmp4:
+            # ── fMP4 下载流程 ──
+            # 4a. 下载 init segment
+            if playlist.init_segment_url:
+                task.current_action = "下载初始化段..."
+                if on_progress:
+                    on_progress(task)
+                from downloader import download_init_segment, _create_session
+                dl_session = _create_session(task.custom_headers, task.proxy)
+                init_path = os.path.join(temp_dir, "init.mp4")
+                br = playlist.init_segment_byterange
+                download_init_segment(playlist.init_segment_url, init_path, dl_session, byterange=br, stop_check=stop_check)
+                dl_session.close()
+            else:
+                init_path = ""
 
-        if task._stop_flag:
-            return
-        if not ts_files:
-            raise Exception("没有成功下载任何分片")
+            if task._stop_flag:
+                return
 
-        # 记录已下载的分片索引（用于断点续传）
-        task.downloaded_segments = len(ts_files)
-        task._downloaded_indices.clear()
-        for ts_file in ts_files:
-            filename = os.path.basename(ts_file)
-            if filename.endswith('.ts'):
-                try:
-                    task._downloaded_indices.add(int(filename[:-3]))
-                except ValueError:
-                    pass
-
-        # 步骤5：如果视频有 AES-128 加密，进行解密
-        if any(s.encryption_method for s in playlist.segments):
-            task.current_action = "解密中..."
+            # 4b. 下载 media segments
+            task.total_segments = len(playlist.segments)
+            task.current_action = f"下载中 {task.total_segments} 个分片..."
             if on_progress:
                 on_progress(task)
-            ts_files = decrypt_files(ts_files, playlist.segments, task.custom_headers, task.proxy, media_sequence=playlist.media_sequence)
 
-        if task._stop_flag:
-            return
+            ts_files = download_all(
+                playlist.segments, temp_dir, max_workers=task.workers,
+                headers=task.custom_headers, proxy=task.proxy,
+                progress_callback=progress_callback, stop_check=stop_check,
+                skip_indices=task._downloaded_indices, speed_callback=speed_callback,
+            )
 
-        # 步骤6：将所有 TS 分片合并为一个完整文件
-        task.current_action = "合并中..."
-        task.progress = 95
-        if on_progress:
-            on_progress(task)
-        final_path = merge_to_ts(ts_files, output_path)
+            if task._stop_flag:
+                return
+            if not ts_files:
+                raise Exception("没有成功下载任何分片")
+
+            # 记录已下载的分片索引
+            task.downloaded_segments = len(ts_files)
+            task._downloaded_indices.clear()
+            for ts_file in ts_files:
+                filename = os.path.basename(ts_file)
+                if filename.endswith('.m4s') or filename.endswith('.ts'):
+                    try:
+                        task._downloaded_indices.add(int(filename.split('.')[0]))
+                    except ValueError:
+                        pass
+
+            # 4c. 解密（如果需要）
+            if any(s.encryption_method for s in playlist.segments):
+                task.current_action = "解密中..."
+                if on_progress:
+                    on_progress(task)
+                ts_files = decrypt_files(ts_files, playlist.segments, task.custom_headers, task.proxy, media_sequence=playlist.media_sequence)
+
+            if task._stop_flag:
+                return
+
+            # 4d. 合并 fMP4
+            task.current_action = "合并中..."
+            task.progress = 95
+            if on_progress:
+                on_progress(task)
+            from merger import merge_fmp4
+            final_path = merge_fmp4(init_path, ts_files, output_path)
+
+        else:
+            # ── TS 下载流程（原有逻辑） ──
+            ts_files = download_all(
+                playlist.segments, temp_dir, max_workers=task.workers,
+                headers=task.custom_headers, proxy=task.proxy,
+                progress_callback=progress_callback, stop_check=stop_check,
+                skip_indices=task._downloaded_indices, speed_callback=speed_callback,
+            )
+
+            if task._stop_flag:
+                return
+            if not ts_files:
+                raise Exception("没有成功下载任何分片")
+
+            # 记录已下载的分片索引（用于断点续传）
+            task.downloaded_segments = len(ts_files)
+            task._downloaded_indices.clear()
+            for ts_file in ts_files:
+                filename = os.path.basename(ts_file)
+                if filename.endswith('.ts'):
+                    try:
+                        task._downloaded_indices.add(int(filename[:-3]))
+                    except ValueError:
+                        pass
+
+            # 步骤5：如果视频有 AES-128 加密，进行解密
+            if any(s.encryption_method for s in playlist.segments):
+                task.current_action = "解密中..."
+                if on_progress:
+                    on_progress(task)
+                ts_files = decrypt_files(ts_files, playlist.segments, task.custom_headers, task.proxy, media_sequence=playlist.media_sequence)
+
+            if task._stop_flag:
+                return
+
+            # 步骤6：将所有 TS 分片合并为一个完整文件
+            task.current_action = "合并中..."
+            task.progress = 95
+            if on_progress:
+                on_progress(task)
+            final_path = merge_to_ts(ts_files, output_path)
 
         # 步骤6.5：验证输出文件
         if os.path.exists(final_path):
@@ -969,6 +1049,12 @@ class App(ctk.CTk):
         ctk.CTkButton(dir_frame, text="选择", width=50, height=34, font=("", 11), corner_radius=6, fg_color=COLORS["border"], command=self._browse_dir).pack(side="left", padx=(6, 0))
         ctk.CTkButton(dir_frame, text="打开", width=50, height=34, font=("", 11), corner_radius=6, fg_color=COLORS["border"], text_color=COLORS["accent"], command=self._open_dir).pack(side="left", padx=(4, 0)); r += 1
 
+        # 音频轨道选择
+        ctk.CTkLabel(form, text="音频轨道", **lk).grid(row=r, column=0, columnspan=2, sticky="w", pady=(0, 4)); r += 1
+        self.audio_var = ctk.StringVar(value="默认")
+        self.audio_combo = ctk.CTkOptionMenu(form, variable=self.audio_var, values=["默认"], width=190, height=34, font=("", 11), fg_color=COLORS["input"], button_color=COLORS["border"])
+        self.audio_combo.grid(row=r, column=0, columnspan=2, sticky="w", pady=(0, 8)); r += 1
+
         # 代理地址 和 线程数（同行显示）
         ctk.CTkLabel(form, text="代理地址", **lk).grid(row=r, column=0, sticky="w")
         ctk.CTkLabel(form, text="线程数", **lk).grid(row=r, column=1, sticky="w", padx=(12, 0)); r += 1
@@ -1062,6 +1148,7 @@ class App(ctk.CTk):
         # 禁用按钮，防止重复点击
         self._download_btn.configure(state="disabled")
         self._available_resolutions = ["最高分辨率"]
+        self._available_audio_tracks = ["默认"]
 
         # 判断是否为 MP4 链接
         is_mp4 = bool(re.search(r'https?://\S+\.mp4(\?\S*)?', url, re.IGNORECASE))
@@ -1087,8 +1174,18 @@ class App(ctk.CTk):
                             if name not in resolutions:
                                 resolutions.append(name)
                         self._available_resolutions = resolutions
+                    # 提取音频轨道列表
+                    if playlist.audio_tracks:
+                        self._available_audio_tracks = ["默认"]
+                        for t in playlist.audio_tracks:
+                            name = t.name or t.language or "Audio"
+                            if name not in self._available_audio_tracks:
+                                self._available_audio_tracks.append(name)
+                    else:
+                        self._available_audio_tracks = ["默认"]
                 except Exception as e:
                     logger.warning(f"获取分辨率失败: {e}")
+                    self._available_audio_tracks = ["默认"]
                 finally:
                     self.after(0, lambda: self._create_task(url, is_mp4=False))
 
@@ -1123,6 +1220,11 @@ class App(ctk.CTk):
         task = DownloadTask(task_id=task_id, url=url, output_name=output_name, output_dir=output_dir, workers=workers, proxy=self.proxy_var.get().strip(), custom_headers={})
         task.resolution = "最高分辨率"
         task.available_resolutions = getattr(self, '_available_resolutions', ["最高分辨率"])
+        task.audio_track = self.audio_var.get() if hasattr(self, 'audio_var') else "默认"
+        task.available_audio_tracks = getattr(self, '_available_audio_tracks', ["默认"])
+        # 更新音频轨道下拉菜单
+        if hasattr(self, 'audio_combo') and self._available_audio_tracks:
+            self.audio_combo.configure(values=self._available_audio_tracks)
         referer = self.referer_var.get().strip()
         if referer:
             task.custom_headers["Referer"] = referer
