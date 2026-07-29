@@ -5,6 +5,7 @@ import json
 import time
 import ssl
 import logging
+import subprocess
 import requests
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,25 @@ def format_speed(bps):
     elif bps >= 1024:
         return f"速度: {bps / 1024:.2f} KB/s"
     return f"速度: {bps} B/s"
+
+
+def check_ffmpeg():
+    """检查 FFmpeg 是否可用"""
+    try:
+        startupinfo = None
+        if os.name == "nt":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        result = subprocess.run(
+            ["ffmpeg", "-version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            startupinfo=startupinfo,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
 
 
 def load_config(config_file):

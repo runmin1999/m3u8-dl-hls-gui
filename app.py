@@ -497,6 +497,11 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
         if task._stop_flag:
             return
 
+        # 检查 FFmpeg 是否可用（TS 合并需要）
+        from utils import check_ffmpeg
+        if not check_ffmpeg():
+            logger.warning("FFmpeg 未找到，将使用简单拼接模式（输出可能不是标准 MP4）")
+
         # 步骤1：获取并解析 m3u8 文件
         task.current_action = "解析m3u8..."
         if on_progress:
@@ -626,6 +631,20 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
         if on_progress:
             on_progress(task)
         final_path = merge_to_ts(ts_files, output_path)
+
+        # 步骤6.5：验证输出文件
+        if os.path.exists(final_path):
+            file_size = os.path.getsize(final_path)
+            if file_size == 0:
+                raise Exception("输出文件大小为 0，合并可能失败")
+            # 根据视频时长估算合理文件大小（最低 1KB/秒）
+            if playlist.total_duration > 0:
+                min_expected = playlist.total_duration * 1024  # 1KB/秒
+                if file_size < min_expected:
+                    logger.warning(f"输出文件偏小: {file_size} 字节，预期至少 {min_expected:.0f} 字节")
+            task.current_action = f"合并完成 ({file_size / (1024*1024):.1f} MB)"
+            if on_progress:
+                on_progress(task)
 
         # 步骤7：清理临时文件
         if os.path.exists(temp_dir):
