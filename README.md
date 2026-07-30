@@ -169,6 +169,13 @@ m3u8-dl-hls-gui/
 
 ## Changelog
 
+### v0.19
+
+- 🔧 **Architecture refactor** — Download logic separated from GUI into dedicated modules (`downloader_mp4.py`, `downloader_m3u8.py`)
+- 🔧 **Unified task execution** — MP4 and M3U8 downloads share a common task lifecycle manager (`task_runner.py`)
+- 🔧 **Enhanced FFmpeg detection** — Checks common install paths on Windows, not just PATH
+- 🔧 **Version consistency** — Fixed version string mismatch across the codebase
+
 ### v0.18
 
 - 🔧 **Audio track download** — Independent audio tracks from master playlists are now fully downloaded, decrypted, and muxed with video
