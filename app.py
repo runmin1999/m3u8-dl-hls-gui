@@ -612,10 +612,21 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
             raise Exception("未找到TS分片")
 
         # 检测格式：fMP4 还是 TS
-        is_fmp4 = bool(playlist.init_segment_url)
-        if not is_fmp4 and playlist.segments:
+        is_fmp4 = False
+        if playlist.init_segment_url:
+            is_fmp4 = True
+        elif playlist.segments:
             sample_url = playlist.segments[0].url.lower()
-            is_fmp4 = sample_url.endswith('.m4s') or (sample_url.endswith('.mp4') and playlist.init_segment_url)
+            # 检查常见 fMP4 扩展名
+            fmp4_extensions = ('.m4s', '.cmfv', '.cmfa', '.cmf')
+            if any(sample_url.endswith(ext) for ext in fmp4_extensions):
+                is_fmp4 = True
+            # 检查是否有 BYTERANGE（fMP4 流的典型特征）
+            elif any(s.byterange for s in playlist.segments[:5]):
+                is_fmp4 = True
+            # 检查 segment 级别的 init_segment_url
+            elif playlist.segments[0].init_segment_url:
+                is_fmp4 = True
 
         # 步骤3：准备下载参数
         task.total_segments = len(playlist.segments)
