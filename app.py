@@ -818,18 +818,33 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
                 logger.warning(f"音频轨道处理失败（视频仍可用）: {e}")
 
         # 步骤7：验证输出文件
-        if os.path.exists(final_path):
-            file_size = os.path.getsize(final_path)
-            if file_size == 0:
-                raise Exception("输出文件大小为 0，合并可能失败")
-            # 根据视频时长估算合理文件大小（最低 1KB/秒）
-            if playlist.total_duration > 0:
-                min_expected = playlist.total_duration * 1024  # 1KB/秒
-                if file_size < min_expected:
-                    logger.warning(f"输出文件偏小: {file_size} 字节，预期至少 {min_expected:.0f} 字节")
-            task.current_action = f"合并完成 ({file_size / (1024*1024):.1f} MB)"
-            if on_progress:
-                on_progress(task)
+        if not os.path.exists(final_path):
+            raise Exception(f"输出文件不存在: {final_path}")
+
+        file_size = os.path.getsize(final_path)
+        if file_size == 0:
+            raise Exception("输出文件大小为 0，合并可能失败")
+
+        # 验证文件头是否为有效容器（MP4 ftyp box 或 TS sync byte）
+        try:
+            with open(final_path, "rb") as f:
+                header = f.read(12)
+            is_valid_mp4 = header[4:8] == b'ftyp'
+            is_valid_ts = header[0] == 0x47
+            if not is_valid_mp4 and not is_valid_ts:
+                logger.warning(f"输出文件头不识别: {header[:8].hex()}，可能不是有效的视频文件")
+        except Exception:
+            pass
+
+        # 根据视频时长估算合理文件大小（最低 1KB/秒）
+        if playlist.total_duration > 0:
+            min_expected = playlist.total_duration * 1024  # 1KB/秒
+            if file_size < min_expected:
+                logger.warning(f"输出文件偏小: {file_size} 字节，预期至少 {min_expected:.0f} 字节")
+
+        task.current_action = f"合并完成 ({file_size / (1024*1024):.1f} MB)"
+        if on_progress:
+            on_progress(task)
 
         # 步骤7：清理临时文件
         if os.path.exists(temp_dir):
