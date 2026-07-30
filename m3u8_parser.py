@@ -18,6 +18,9 @@ class Segment:
     iv: bytes = b""             # 初始化向量（16 字节）
     # EXT-X-BYTERANGE 支持
     byterange: str = ""         # 字节范围（如 "1000@0"：长度@偏移）
+    # fMP4 初始化段信息（从 EXT-X-MAP 继承）
+    init_segment_url: str = ""       # 当前分片关联的 init segment 地址
+    init_segment_byterange: str = "" # 当前分片关联的 init segment BYTERANGE
 
 
 @dataclass
@@ -161,6 +164,8 @@ def _parse_media(lines: list, base_url: str, playlist: M3U8Playlist):
     iv = b""
     current_byterange = ""
     last_seg_url = ""  # 用于 BYTERANGE 引用前一个分片 URL
+    current_init_url = ""        # 当前生效的 init segment URL
+    current_init_byterange = ""  # 当前生效的 init segment BYTERANGE
 
     for line in lines:
         line = line.strip()
@@ -177,10 +182,14 @@ def _parse_media(lines: list, base_url: str, playlist: M3U8Playlist):
             seg_index = playlist.media_sequence
 
         elif line.startswith("#EXT-X-MAP:"):
-            # fMP4 初始化段（init segment）
+            # fMP4 初始化段（init segment），可出现多次，每次影响后续分片
             attrs = _parse_attributes(line[len("#EXT-X-MAP:"):])
-            playlist.init_segment_url = _resolve_url(base_url, attrs.get("URI", ""))
-            playlist.init_segment_byterange = attrs.get("BYTERANGE", "")
+            current_init_url = _resolve_url(base_url, attrs.get("URI", ""))
+            current_init_byterange = attrs.get("BYTERANGE", "")
+            # 保留第一个 init segment 到 playlist 级别（向后兼容）
+            if not playlist.init_segment_url:
+                playlist.init_segment_url = current_init_url
+                playlist.init_segment_byterange = current_init_byterange
 
         elif line.startswith("#EXT-X-BYTERANGE:"):
             # 字节范围：格式为 长度@偏移（如 "1000@0"）
@@ -219,6 +228,8 @@ def _parse_media(lines: list, base_url: str, playlist: M3U8Playlist):
                 key_url=key_url,
                 iv=iv,
                 byterange=current_byterange,
+                init_segment_url=current_init_url,
+                init_segment_byterange=current_init_byterange,
             )
             playlist.segments.append(seg)
             playlist.total_duration += current_duration
