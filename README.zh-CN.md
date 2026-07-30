@@ -169,6 +169,14 @@ m3u8-dl-hls-gui/
 
 ## 更新日志
 
+### v0.18
+
+- 🔧 **独立音频下载** — Master Playlist 中的独立音频轨道现在完整支持下载、解密、合并
+- 🔧 **EXT-X-MAP 多段支持** — 每个分片独立携带 init segment 引用，支持多个 EXT-X-MAP 条目
+- 🔧 **fMP4 检测增强** — 支持更多扩展名（.m4s, .cmfv, .cmfa）和 BYTERANGE 特征检测
+- 🔧 **输出验证** — 文件头校验（ftyp/sync byte），防止损坏文件误显示为完成
+- 🐛 **Bug 修复** — 修复 media_sequence 未传递给解密器、清理死代码
+
 ### v0.17
 
 - 🔧 **fMP4 支持** — 下载 fragmented MP4 流（.m4s 分片 + init segment）

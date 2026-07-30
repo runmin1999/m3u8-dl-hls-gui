@@ -169,6 +169,14 @@ m3u8-dl-hls-gui/
 
 ## Changelog
 
+### v0.18
+
+- 🔧 **Audio track download** — Independent audio tracks from master playlists are now fully downloaded, decrypted, and muxed with video
+- 🔧 **EXT-X-MAP multi-segment** — Each segment now carries its own init segment reference, supporting streams with multiple EXT-X-MAP entries
+- 🔧 **Enhanced fMP4 detection** — Broader extension support (.m4s, .cmfv, .cmfa) and BYTERANGE-based detection
+- 🔧 **Output validation** — File header verification (ftyp/sync byte) prevents false "completed" on corrupt output
+- 🐛 **Bug fixes** — Fixed media_sequence not passed to decryptor, removed dead code
+
 ### v0.17
 
 - 🔧 **fMP4 support** — Download fragmented MP4 streams (.m4s segments + init segment)
