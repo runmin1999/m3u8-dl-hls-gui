@@ -1423,7 +1423,6 @@ class App(ctk.CTk):
         if task:
             task.stop()
             _save_tasks(self.tasks)
-            _save_tasks(self.tasks)
 
     def _delete_task(self, task_id):
         """删除任务（立即移除，后台清理）"""
@@ -1562,8 +1561,6 @@ class App(ctk.CTk):
                 self._show_toast("已填入 M3U8 链接")
                 return "break"  # 阻止默认粘贴行为
             # 非 M3U8 内容，允许默认粘贴
-        except Exception:
-            pass
         except Exception:
             pass
 

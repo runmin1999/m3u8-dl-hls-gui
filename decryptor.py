@@ -149,7 +149,7 @@ def decrypt_files(
             # 使用分片自己的 IV，如果没有则用 media_sequence
             iv = seg.iv if seg.iv else media_sequence.to_bytes(16, byteorder='big')
             # AES-128-CBC 解密
-            decrypted_data = decrypt_segment(encrypted_data, key, iv, media_sequence=0)
+            decrypted_data = decrypt_segment(encrypted_data, key, iv, media_sequence=media_sequence)
             # 覆盖写回原文件
             with open(filepath, "wb") as f:
                 f.write(decrypted_data)
