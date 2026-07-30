@@ -133,6 +133,7 @@ class DownloadTask:
         self.available_resolutions = ["最高分辨率"]     # 可用分辨率列表
         self.audio_track = ""                           # 选择的音频轨道名称
         self.available_audio_tracks = []                # 可用音频轨道列表
+        self._audio_track_url = ""                      # 选中的音频轨道 m3u8 URL
 
     @property
     def download_speed(self):
@@ -183,6 +184,7 @@ class DownloadTask:
             "resolution": getattr(self, 'resolution', "最高分辨率"),
             "audio_track": getattr(self, 'audio_track', ""),
             "available_audio_tracks": getattr(self, 'available_audio_tracks', []),
+            "audio_track_url": getattr(self, '_audio_track_url', ""),
         }
 
 
@@ -221,6 +223,7 @@ def _load_tasks():
         task.resolution = item.get("resolution", "最高分辨率")
         task.audio_track = item.get("audio_track", "")
         task.available_audio_tracks = item.get("available_audio_tracks", [])
+        task._audio_track_url = item.get("audio_track_url", "")
         tasks[task.task_id] = task
     return tasks
 
@@ -483,6 +486,57 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
         _save_tasks(tasks_dict)
 
 
+def _download_audio_track(
+    audio_url: str,
+    temp_dir: str,
+    workers: int,
+    headers: dict,
+    proxy: str,
+    stop_check=None,
+):
+    """
+    下载独立音频轨道：解析 m3u8 → 下载分片 → 解密 → 合并
+
+    Returns:
+        合并后的音频文件路径
+    """
+    from utils import fetch_m3u8
+    from m3u8_parser import parse_m3u8
+    from downloader import download_all
+    from decryptor import decrypt_files
+
+    audio_content = fetch_m3u8(audio_url, headers=headers, proxy=proxy)
+    audio_playlist = parse_m3u8(audio_content, audio_url)
+
+    if not audio_playlist.segments:
+        raise Exception("音频轨道没有分片")
+
+    audio_temp_dir = os.path.join(temp_dir, "audio")
+    os.makedirs(audio_temp_dir, exist_ok=True)
+
+    audio_files = download_all(
+        audio_playlist.segments, audio_temp_dir, max_workers=workers,
+        headers=headers, proxy=proxy, stop_check=stop_check,
+    )
+
+    if not audio_files:
+        raise Exception("音频分片下载失败")
+
+    if any(s.encryption_method for s in audio_playlist.segments):
+        audio_files = decrypt_files(
+            audio_files, audio_playlist.segments,
+            headers, proxy,
+            media_sequence=audio_playlist.media_sequence,
+        )
+
+    audio_output = os.path.join(temp_dir, "audio_merged.mp4")
+    from merger import merge_ts_files
+    if not merge_ts_files(audio_files, audio_output):
+        raise Exception("音频合并失败")
+
+    return audio_output
+
+
 def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率"):
     """
     执行下载任务的主流程（在子线程中运行）
@@ -531,6 +585,23 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
                 # 自动选择最高码率
                 selected_idx = max(range(len(playlist.streams)), key=lambda i: playlist.streams[i].bandwidth)
             task.resolution = playlist.streams[selected_idx].name or f"{playlist.streams[selected_idx].bandwidth}bps"
+
+            # 解析音频轨道 URL（在 playlist 被替换前）
+            if playlist.audio_tracks:
+                selected_audio = task.audio_track
+                if selected_audio and selected_audio != "默认":
+                    for at in playlist.audio_tracks:
+                        if at.name == selected_audio or at.language == selected_audio:
+                            task._audio_track_url = at.url
+                            break
+                # 未选择或找不到时，使用默认音频轨道
+                if not task._audio_track_url and playlist.audio_tracks:
+                    default_track = next(
+                        (at for at in playlist.audio_tracks if at.default),
+                        playlist.audio_tracks[0]
+                    )
+                    task._audio_track_url = default_track.url
+
             # 获取选定码率的 Media Playlist
             stream_url = playlist.streams[selected_idx].url
             content = fetch_m3u8(stream_url, task.custom_headers, task.proxy)
@@ -712,7 +783,30 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
                 on_progress(task)
             final_path = merge_to_ts(ts_files, output_path)
 
-        # 步骤6.5：验证输出文件
+        # 步骤6.5：音视频合并（如果选择了独立音频轨道）
+        if task._audio_track_url and not task._stop_flag:
+            task.current_action = "下载音频轨道..."
+            task.progress = 88
+            if on_progress:
+                on_progress(task)
+            try:
+                audio_file = _download_audio_track(
+                    task._audio_track_url, temp_dir,
+                    task.workers, task.custom_headers, task.proxy,
+                    stop_check=stop_check,
+                )
+                if not task._stop_flag and os.path.exists(audio_file):
+                    task.current_action = "合并音视频..."
+                    task.progress = 93
+                    if on_progress:
+                        on_progress(task)
+                    from merger import mux_audio_video
+                    muxed_path = os.path.join(temp_dir, "muxed_output.mp4")
+                    final_path = mux_audio_video(final_path, audio_file, muxed_path)
+            except Exception as e:
+                logger.warning(f"音频轨道处理失败（视频仍可用）: {e}")
+
+        # 步骤7：验证输出文件
         if os.path.exists(final_path):
             file_size = os.path.getsize(final_path)
             if file_size == 0:
