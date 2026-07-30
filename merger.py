@@ -178,7 +178,7 @@ def merge_ts_files(ts_files: List[str], output_path: str) -> bool:
             cmd,
             capture_output=True,
             text=True,
-            timeout=600,  # 10 分钟超时
+            timeout=3600,  # 1 小时超时（大文件可能需要很长时间）
             startupinfo=startupinfo,
         )
 

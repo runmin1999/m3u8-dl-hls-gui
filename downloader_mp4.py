@@ -7,6 +7,7 @@ import threading
 import requests
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, wait
+from utils import save_tasks, TASKS_HISTORY_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +18,6 @@ DEFAULT_HEADERS = {
 
 def run_download_mp4(task, tasks_dict, on_progress=None):
     """MP4 多线程下载（支持断点续传、Range 分块）"""
-    from utils import save_tasks
-
     if task.status != "downloading":
         return
     try:
@@ -183,7 +182,7 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
                 for f in pending:
                     f.cancel()
                 task._mp4_downloaded = _dl_downloaded[0]
-                save_tasks(tasks_dict, "")
+                save_tasks(tasks_dict, TASKS_HISTORY_FILE)
 
             executor.shutdown(wait=False)
         else:
@@ -221,7 +220,7 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
                             on_progress(task)
 
         if task._stop_flag:
-            save_tasks(tasks_dict, "")
+            save_tasks(tasks_dict, TASKS_HISTORY_FILE)
             return
 
         os.replace(tmp_path, output_path)
@@ -234,7 +233,7 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
         task.finished_at = datetime.now().isoformat()
         if on_progress:
             on_progress(task)
-        save_tasks(tasks_dict, "")
+        save_tasks(tasks_dict, TASKS_HISTORY_FILE)
 
     except Exception as e:
         if task._stop_flag:
@@ -247,4 +246,4 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
         task.finished_at = datetime.now().isoformat()
         if on_progress:
             on_progress(task)
-        save_tasks(tasks_dict, "")
+        save_tasks(tasks_dict, TASKS_HISTORY_FILE)

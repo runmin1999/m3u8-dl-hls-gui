@@ -11,6 +11,19 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+def get_base_dir():
+    """获取应用基础目录，兼容 PyInstaller 打包"""
+    import sys
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+# 任务历史文件路径（供 app.py 和 downloader 模块共同使用）
+BASE_DIR = get_base_dir()
+TASKS_HISTORY_FILE = os.path.join(BASE_DIR, "tasks_history.json")
+
+
 def fetch_m3u8(url, headers=None, proxy=""):
     """获取 m3u8 文件内容，带重试和SSL错误处理"""
     req_headers = {

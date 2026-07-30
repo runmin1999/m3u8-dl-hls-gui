@@ -7,6 +7,7 @@ import shutil
 import hashlib
 import logging
 from datetime import datetime
+from utils import save_tasks, TASKS_HISTORY_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
     执行下载任务的主流程（在子线程中运行）
     自动检测 MP4/M3U8 格式，调用对应下载函数
     """
-    from utils import fetch_m3u8, get_base_url, check_ffmpeg, save_tasks
+    from utils import fetch_m3u8, get_base_url, check_ffmpeg
     from m3u8_parser import parse_m3u8
     from downloader import download_all, download_init_segment, _create_session
     from decryptor import decrypt_files
@@ -353,7 +354,7 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
         task.finished_at = datetime.now().isoformat()
         if on_progress:
             on_progress(task)
-        save_tasks(tasks_dict, "")
+        save_tasks(tasks_dict, TASKS_HISTORY_FILE)
 
     except Exception as e:
         if task._stop_flag:
@@ -366,4 +367,4 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
         task.finished_at = datetime.now().isoformat()
         if on_progress:
             on_progress(task)
-        save_tasks(tasks_dict, "")
+        save_tasks(tasks_dict, TASKS_HISTORY_FILE)

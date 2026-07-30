@@ -66,11 +66,11 @@ from m3u8_parser import parse_m3u8
 from downloader import download_all
 from decryptor import decrypt_files
 from merger import merge_to_ts
+from utils import TASKS_HISTORY_FILE
 
 logger = logging.getLogger(__name__)
 
 # 任务历史记录和配置文件路径
-TASKS_HISTORY_FILE = os.path.join(BASE_DIR, "tasks_history.json")
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
 # ── UI 配色方案（暗色主题） ──
