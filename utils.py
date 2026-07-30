@@ -68,22 +68,28 @@ def format_speed(bps):
 
 
 def check_ffmpeg():
-    """检查 FFmpeg 是否可用"""
-    try:
-        startupinfo = None
-        if os.name == "nt":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        result = subprocess.run(
-            ["ffmpeg", "-version"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            startupinfo=startupinfo,
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+    """检查 FFmpeg 是否可用，支持常见安装路径"""
+    import shutil
+
+    # 方法1: PATH 中查找
+    if shutil.which("ffmpeg"):
+        return True
+
+    # 方法2: 常见安装路径（Windows）
+    common_paths = [
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "ffmpeg", "bin", "ffmpeg.exe"),
+        os.path.join(os.environ.get("PROGRAMFILES", ""), "ffmpeg", "bin", "ffmpeg.exe"),
+        os.path.join(os.environ.get("PROGRAMFILES(X86)", ""), "ffmpeg", "bin", "ffmpeg.exe"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg", "bin", "ffmpeg.exe"),
+    ]
+    for path in common_paths:
+        if os.path.isfile(path):
+            bin_dir = os.path.dirname(path)
+            if bin_dir not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+            return True
+
+    return False
 
 
 def load_config(config_file):
