@@ -230,6 +230,7 @@ def _load_tasks():
 
 from downloader_mp4 import run_download_mp4
 from downloader_m3u8 import run_download
+from task_runner import start_download
 
 
 class TaskCard(ctk.CTkFrame):
@@ -762,9 +763,7 @@ class App(ctk.CTk):
         self._refresh_task_list()
         # 使用任务自己保存的分辨率，而不是全局下拉菜单
         resolution = task.resolution if task.resolution else "最高分辨率"
-        thread = threading.Thread(target=run_download, args=(task, self.tasks, lambda t: None, resolution), daemon=True)
-        task._thread = thread
-        thread.start()
+        start_download(task, self.tasks, on_progress=lambda t: None, resolution=resolution)
 
     def _pause_task(self, task_id):
         """暂停任务"""
