@@ -74,8 +74,10 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
     from decryptor import decrypt_files
     from merger import merge_to_ts, merge_fmp4, mux_audio_video
 
-    # 检测是否为 MP4 链接
-    if re.search(r'https?://\S+\.mp4(\?\S*)?', task.url, re.IGNORECASE):
+    # 检测是否为 MP4 链接（仅当 URL 路径以 .mp4 结尾，排除路径中间含 .mp4 的 M3U8）
+    from urllib.parse import urlparse
+    _parsed = urlparse(task.url)
+    if _parsed.path.rstrip('/').lower().endswith('.mp4'):
         from downloader_mp4 import run_download_mp4
         run_download_mp4(task, tasks_dict, on_progress)
         return
@@ -98,8 +100,13 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
         if on_progress:
             on_progress(task)
 
-        content = fetch_m3u8(task.url, task.custom_headers, task.proxy)
-        base_url = get_base_url(task.url)
+        # 优先使用本地 M3U8 内容，否则从网络获取
+        if task.local_m3u8_content:
+            content = task.local_m3u8_content
+            base_url = task.local_m3u8_base or get_base_url(task.url)
+        else:
+            content = fetch_m3u8(task.url, task.custom_headers, task.proxy)
+            base_url = get_base_url(task.url)
         playlist = parse_m3u8(content, base_url)
 
         # 步骤2：如果是 Master Playlist，选择分辨率
@@ -131,8 +138,22 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
                     task._audio_track_url = default_track.url
 
             stream_url = playlist.streams[selected_idx].url
-            content = fetch_m3u8(stream_url, task.custom_headers, task.proxy)
-            base_url = get_base_url(stream_url)
+            # 子播放列表：本地文件内嵌套的用 base_url 拼接，否则从网络获取
+            if task.local_m3u8_content:
+                from urllib.parse import urljoin
+                resolved = urljoin(base_url, stream_url) if not stream_url.startswith("http") else stream_url
+                # 如果是本地文件，尝试读取同级目录的子 m3u8
+                local_sub = resolved.replace("file:///", "").replace("file://", "")
+                if os.path.isfile(local_sub):
+                    with open(local_sub, "r", encoding="utf-8", errors="replace") as f:
+                        content = f.read()
+                    base_url = get_base_url(resolved)
+                else:
+                    content = fetch_m3u8(resolved, task.custom_headers, task.proxy)
+                    base_url = get_base_url(resolved)
+            else:
+                content = fetch_m3u8(stream_url, task.custom_headers, task.proxy)
+                base_url = get_base_url(stream_url)
             playlist = parse_m3u8(content, base_url)
 
         if not playlist.segments:

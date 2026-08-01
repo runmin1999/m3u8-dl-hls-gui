@@ -1,4 +1,4 @@
-"""m3u8-dl-hls-gui v0.19 - CustomTkinter 桌面应用"""
+"""m3u8-dl-hls-gui v0.20 - CustomTkinter 桌面应用"""
 
 import os
 import sys
@@ -134,6 +134,8 @@ class DownloadTask:
         self.audio_track = ""                           # 选择的音频轨道名称
         self.available_audio_tracks = []                # 可用音频轨道列表
         self._audio_track_url = ""                      # 选中的音频轨道 m3u8 URL
+        self.local_m3u8_content = ""                    # 本地 M3U8 文件内容
+        self.local_m3u8_base = ""                       # 本地 M3U8 文件目录（用于解析相对路径）
 
     @property
     def download_speed(self):
@@ -185,6 +187,8 @@ class DownloadTask:
             "audio_track": getattr(self, 'audio_track', ""),
             "available_audio_tracks": getattr(self, 'available_audio_tracks', []),
             "audio_track_url": getattr(self, '_audio_track_url', ""),
+            "local_m3u8_content": getattr(self, 'local_m3u8_content', ""),
+            "local_m3u8_base": getattr(self, 'local_m3u8_base', ""),
         }
 
 
@@ -224,6 +228,8 @@ def _load_tasks():
         task.audio_track = item.get("audio_track", "")
         task.available_audio_tracks = item.get("available_audio_tracks", [])
         task._audio_track_url = item.get("audio_track_url", "")
+        task.local_m3u8_content = item.get("local_m3u8_content", "")
+        task.local_m3u8_base = item.get("local_m3u8_base", "")
         tasks[task.task_id] = task
     return tasks
 
@@ -323,7 +329,7 @@ class TaskCard(ctk.CTkFrame):
 
     def _create_context_menu(self):
         """创建右键上下文菜单（圆角自定义样式）"""
-        self._context_menu = None  # 延迟创建
+        pass  # 菜单通过 App._active_context_menu 跟踪
 
     def _bind_right_click(self, widget):
         """递归给控件及所有子控件绑定右键菜单"""
@@ -377,29 +383,33 @@ class TaskCard(ctk.CTkFrame):
         h = inner.winfo_reqheight() + 4
         menu.geometry(f"{w}x{h}+{x}+{y}")
 
-        self._context_menu = menu
-        # 点击菜单外部关闭菜单
-        self.bind("<Button-1>", self._on_outside_click)
-        self.bind("<Button-3>", self._on_outside_click)
+        # 通过 App 级别跟踪菜单，实现全局点击关闭
+        app = self.winfo_toplevel()
+        app._active_context_menu = (menu, self)
 
     def _hide_context_menu(self):
         """关闭右键菜单"""
-        if self._context_menu:
-            self._context_menu.destroy()
-            self._context_menu = None
-            self.unbind("<Button-1>")
-            self.unbind("<Button-3>")
+        app = self.winfo_toplevel()
+        if app._active_context_menu:
+            menu, _ = app._active_context_menu
+            try:
+                menu.destroy()
+            except Exception:
+                pass
+            app._active_context_menu = None
 
     def _on_outside_click(self, event):
         """点击外部关闭菜单"""
-        if self._context_menu:
+        app = self.winfo_toplevel()
+        if app._active_context_menu:
             # 检查点击是否在菜单内
             try:
+                menu, _ = app._active_context_menu
                 x, y = event.x_root, event.y_root
-                mx = self._context_menu.winfo_rootx()
-                my = self._context_menu.winfo_rooty()
-                mw = self._context_menu.winfo_width()
-                mh = self._context_menu.winfo_height()
+                mx = menu.winfo_rootx()
+                my = menu.winfo_rooty()
+                mw = menu.winfo_width()
+                mh = menu.winfo_height()
                 if not (mx <= x <= mx + mw and my <= y <= my + mh):
                     self._hide_context_menu()
             except Exception:
@@ -461,7 +471,8 @@ class App(ctk.CTk):
 
     def __init__(self):
         super().__init__()
-        self.title("m3u8-dl-hls-gui v0.19")
+        self._dnd_available = False
+        self.title("m3u8-dl-hls-gui v0.20")
         self.geometry("930x620")
         self.minsize(750, 500)
         self.configure(fg_color=COLORS["bg"])
@@ -469,12 +480,16 @@ class App(ctk.CTk):
         self.config_data = load_config(CONFIG_FILE)      # 加载用户配置
         self.tasks = _load_tasks()            # 加载历史任务
         self.task_cards = {}                  # task_id → TaskCard 映射
+        self._active_context_menu = None      # 当前打开的右键菜单 (menu, owner_card)
 
         self._build_ui()
         self._refresh_task_list()
         self._poll_progress()  # 启动定时刷新
         self._start_clipboard_monitor()  # 启动剪贴板监控
         self._setup_drop()  # 启用拖拽
+        # 全局点击/失焦监听：关闭右键菜单
+        self.bind("<Button-1>", self._dismiss_context_menu)
+        self.bind("<FocusOut>", self._dismiss_context_menu)
 
     def _build_ui(self):
         """构建主界面（左右两栏布局）"""
@@ -628,8 +643,10 @@ class App(ctk.CTk):
         self._available_resolutions = ["最高分辨率"]
         self._available_audio_tracks = ["默认"]
 
-        # 判断是否为 MP4 链接
-        is_mp4 = bool(re.search(r'https?://\S+\.mp4(\?\S*)?', url, re.IGNORECASE))
+        # 判断是否为 MP4 链接（仅当 URL 路径以 .mp4 结尾，排除路径中间含 .mp4 的 M3U8）
+        from urllib.parse import urlparse
+        _parsed = urlparse(url)
+        is_mp4 = _parsed.path.rstrip('/').lower().endswith('.mp4')
 
         if is_mp4:
             # MP4 直接下载，无需解析 M3U8
@@ -638,12 +655,22 @@ class App(ctk.CTk):
             # M3U8：在子线程中解析获取分辨率列表
             def parse_and_create():
                 try:
-                    headers = {}
-                    referer = self.referer_var.get().strip()
-                    if referer:
-                        headers['Referer'] = referer
-                    content = fetch_m3u8(url, headers, self.proxy_var.get().strip())
-                    base = get_base_url(url)
+                    # 检测本地文件路径
+                    is_local = os.path.isfile(url)
+                    if is_local:
+                        with open(url, "r", encoding="utf-8", errors="replace") as f:
+                            content = f.read()
+                        base = get_base_url(url.replace("\\", "/"))
+                        # 存储本地内容供下载时使用
+                        self._local_m3u8_content = content
+                        self._local_m3u8_base = base
+                    else:
+                        headers = {}
+                        referer = self.referer_var.get().strip()
+                        if referer:
+                            headers['Referer'] = referer
+                        content = fetch_m3u8(url, headers, self.proxy_var.get().strip())
+                        base = get_base_url(url)
                     playlist = parse_m3u8(content, base)
                     if playlist.is_master and playlist.streams:
                         resolutions = ["最高分辨率"]
@@ -700,6 +727,12 @@ class App(ctk.CTk):
         task.available_resolutions = getattr(self, '_available_resolutions', ["最高分辨率"])
         task.audio_track = self.audio_var.get() if hasattr(self, 'audio_var') else "默认"
         task.available_audio_tracks = getattr(self, '_available_audio_tracks', ["默认"])
+        # 本地 M3U8 文件内容
+        if hasattr(self, '_local_m3u8_content') and self._local_m3u8_content:
+            task.local_m3u8_content = self._local_m3u8_content
+            task.local_m3u8_base = getattr(self, '_local_m3u8_base', "")
+            self._local_m3u8_content = ""
+            self._local_m3u8_base = ""
         # 更新音频轨道下拉菜单
         if hasattr(self, 'audio_combo') and self._available_audio_tracks:
             self.audio_combo.configure(values=self._available_audio_tracks)
@@ -900,25 +933,73 @@ class App(ctk.CTk):
         toast.place(relx=0.5, rely=0.95, anchor="center")
         self.after(duration, toast.destroy)
 
+    def _dismiss_context_menu(self, event=None):
+        """关闭当前打开的右键菜单"""
+        if self._active_context_menu:
+            menu, owner = self._active_context_menu
+            try:
+                menu.destroy()
+            except Exception:
+                pass
+            self._active_context_menu = None
+
     # ── Ctrl+V 粘贴检测 ──
 
     def _setup_drop(self):
-        """启用 Ctrl+V 粘贴检测"""
+        """启用 Ctrl+V 粘贴检测（支持本地文件路径和 URL）"""
         self.bind("<Control-v>", self._on_paste)
 
     def _on_paste(self, event=None):
-        """Ctrl+V 粘贴时检测 M3U8 链接"""
+        """Ctrl+V 粘贴时检测 M3U8 链接或本地文件路径"""
         try:
-            clipboard = self.clipboard_get()
+            clipboard = self.clipboard_get().strip()
+            if not clipboard:
+                return
+            # 检测 URL
             match = re.search(r'https?://\S+\.(m3u8|mp4)(\?\S*)?', clipboard, re.IGNORECASE)
             if match:
-                # 检测到 M3U8 链接，填入 URL 框，阻止默认粘贴
                 self.url_var.set(match.group())
-                self._show_toast("已填入 M3U8 链接")
-                return "break"  # 阻止默认粘贴行为
-            # 非 M3U8 内容，允许默认粘贴
+                self._show_toast("已填入视频链接")
+                return "break"
+            # 检测本地文件路径
+            if os.path.isfile(clipboard):
+                ext = os.path.splitext(clipboard)[1].lower()
+                if ext in (".m3u8", ".mp4"):
+                    self._load_local_file(clipboard)
+                    return "break"
+                else:
+                    self._show_toast("仅支持 .m3u8 和 .mp4 文件")
+                    return "break"
         except Exception:
             pass
+
+    def _load_local_file(self, filepath):
+        """加载本地 .m3u8 或 .mp4 文件"""
+        ext = os.path.splitext(filepath)[1].lower()
+        if ext == ".mp4":
+            self.url_var.set(filepath)
+            self.name_var.set(os.path.basename(filepath))
+            self._show_toast(f"已加载本地 MP4: {os.path.basename(filepath)}")
+        elif ext == ".m3u8":
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except UnicodeDecodeError:
+                with open(filepath, "r", encoding="latin-1") as f:
+                    content = f.read()
+            if "#EXTM3U" not in content:
+                self._show_toast("不是有效的 M3U8 文件")
+                return
+            # 将文件内容作为自定义 M3U8 内容存入，用文件所在目录作为 base URL
+            file_dir = os.path.dirname(os.path.abspath(filepath)).replace("\\", "/") + "/"
+            self.url_var.set(file_dir + os.path.basename(filepath))
+            self.name_var.set(os.path.basename(filepath))
+            # 存储本地 M3U8 内容，供下载时使用
+            self._local_m3u8_content = content
+            self._local_m3u8_base = file_dir
+            self._show_toast(f"已加载本地 M3U8: {os.path.basename(filepath)}")
+        self._download_btn.configure(state="normal")
+
 
 
 if __name__ == "__main__":

@@ -108,12 +108,13 @@ def mux_audio_video(
             startupinfo.wShowWindow = subprocess.SW_HIDE
 
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=600,
+            cmd, capture_output=True, timeout=600,
             startupinfo=startupinfo,
         )
 
         if result.returncode != 0:
-            logger.error(f"FFmpeg mux 失败: {result.stderr[-500:]}")
+            err = result.stderr.decode("utf-8", errors="replace")[-500:]
+            logger.error(f"FFmpeg mux 失败: {err}")
             raise RuntimeError("FFmpeg mux 失败")
 
         if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
@@ -177,13 +178,13 @@ def merge_ts_files(ts_files: List[str], output_path: str) -> bool:
         result = subprocess.run(
             cmd,
             capture_output=True,
-            text=True,
             timeout=3600,  # 1 小时超时（大文件可能需要很长时间）
             startupinfo=startupinfo,
         )
 
         if result.returncode != 0:
-            logger.error(f"FFmpeg remux 失败: {result.stderr[-500:]}")
+            err = result.stderr.decode("utf-8", errors="replace")[-500:]
+            logger.error(f"FFmpeg remux 失败: {err}")
             return False
 
         # 验证输出文件

@@ -19,7 +19,9 @@ def start_download(task, tasks_dict, on_progress=None, resolution="最高分辨�
         try:
             task._dl_id += 1
 
-            if re.search(r'https?://\S+\.mp4(\?\S*)?', task.url, re.IGNORECASE):
+            from urllib.parse import urlparse as _urlparse
+            _path = _urlparse(task.url).path.rstrip('/').lower()
+            if _path.endswith('.mp4'):
                 from downloader_mp4 import run_download_mp4
                 run_download_mp4(task, tasks_dict, on_progress)
             else:
