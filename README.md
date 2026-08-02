@@ -28,6 +28,7 @@
 | **Fast Controls** | Pause/Stop response <0.5s; Delete with background cleanup |
 | **Clipboard Auto-detect** | Auto-fills URL from clipboard when URL field is empty |
 | **Smart Paste** | Ctrl+V detects M3U8/MP4 links and fills URL field automatically |
+| **Local M3U8 Support** | Paste local .m3u8 file path via Ctrl+V to download directly |
 | **Right-click Menu** | Copy link, open download directory, delete task |
 | **Proxy Support** | HTTP / HTTPS / SOCKS proxy for all network requests |
 | **Custom Headers** | Referer and arbitrary headers for anti-hotlinking |
@@ -83,6 +84,7 @@ Output: `dist/m3u8-dl-hls-gui.exe`
 4. Right panel — switch resolution, pause / resume / stop / delete tasks
 5. **Clipboard**: Copy an M3U8/MP4 link and it auto-fills when URL field is empty
 6. **Ctrl+V**: Smart paste detects M3U8/MP4 links automatically
+7. **Local Files**: Ctrl+V a local `.m3u8` file path to download directly
 
 ### CLI
 
@@ -168,6 +170,13 @@ m3u8-dl-hls-gui/
 ```
 
 ## Changelog
+
+### v0.20
+
+- 🐛 **Fix MP4 detection** — URLs with `.mp4` in path (e.g. `.../video.mp4/master.m3u8`) no longer misidentified as MP4 download
+- 🐛 **Fix context menu** — Right-click menu now closes on focus loss and clicking outside
+- ✨ **Local M3U8 support** — Ctrl+V a local `.m3u8` file path to download its segments directly
+- 🐛 **Fix FFmpeg encoding** — Fixed `UnicodeDecodeError` on Chinese Windows (GBK vs UTF-8)
 
 ### v0.19
 
