@@ -390,7 +390,7 @@ class TaskCard(ctk.CTkFrame):
     def _hide_context_menu(self):
         """关闭右键菜单"""
         app = self.winfo_toplevel()
-        if app._active_context_menu:
+        if app._active_context_menu and isinstance(app._active_context_menu, tuple):
             menu, _ = app._active_context_menu
             try:
                 menu.destroy()
@@ -401,7 +401,7 @@ class TaskCard(ctk.CTkFrame):
     def _on_outside_click(self, event):
         """点击外部关闭菜单"""
         app = self.winfo_toplevel()
-        if app._active_context_menu:
+        if app._active_context_menu and isinstance(app._active_context_menu, tuple):
             # 检查点击是否在菜单内
             try:
                 menu, _ = app._active_context_menu
@@ -935,7 +935,7 @@ class App(ctk.CTk):
 
     def _dismiss_context_menu(self, event=None):
         """关闭当前打开的右键菜单"""
-        if self._active_context_menu:
+        if self._active_context_menu and isinstance(self._active_context_menu, tuple):
             menu, owner = self._active_context_menu
             try:
                 menu.destroy()

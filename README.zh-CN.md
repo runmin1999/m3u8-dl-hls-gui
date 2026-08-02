@@ -145,6 +145,9 @@ m3u8-dl-hls-gui/
 ├── main.py             # CLI 命令行入口
 ├── m3u8_parser.py      # M3U8 播放列表解析模块
 ├── downloader.py       # 多线程下载引擎
+├── downloader_m3u8.py  # M3U8 下载编排模块
+├── downloader_mp4.py   # MP4 直链下载模块
+├── task_runner.py      # 统一任务生命周期管理
 ├── decryptor.py        # AES-128 解密模块
 ├── merger.py           # TS 分片合并模块
 ├── requirements.txt    # Python 依赖

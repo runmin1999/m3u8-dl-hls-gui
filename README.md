@@ -145,6 +145,9 @@ m3u8-dl-hls-gui/
 ├── main.py             # CLI entry point
 ├── m3u8_parser.py      # M3U8 playlist parser
 ├── downloader.py       # Multi-threaded download engine
+├── downloader_m3u8.py  # M3U8 download orchestration
+├── downloader_mp4.py   # MP4 direct download
+├── task_runner.py      # Unified task lifecycle manager
 ├── decryptor.py        # AES-128 decryption module
 ├── merger.py           # TS segment merger
 ├── requirements.txt    # Python dependencies

@@ -16,7 +16,9 @@ This document describes the internal workflow and technical principles of each c
 6. [Resolution Selection](#6-resolution-selection)
 7. [Proxy Support](#7-proxy-support)
 8. [Custom Headers](#8-custom-headers)
-9. [Complete Download Flow](#9-complete-download-flow)
+9. [Local M3U8 Support](#9-local-m3u8-support)
+10. [MP4 URL Detection](#10-mp4-url-detection)
+11. [Complete Download Flow](#11-complete-download-flow)
 
 ---
 
@@ -582,7 +584,95 @@ Written to task.custom_headers on task creation
 
 ---
 
-## 9. Complete Download Flow
+## 9. Local M3U8 Support
+
+### 9.1 Overview
+
+Users can paste a local `.m3u8` file path via Ctrl+V. The app reads the file content directly, parses segment URLs, and downloads them from the remote server.
+
+### 9.2 Flow
+
+```
+User pastes local path (e.g. D:\Videos\index.m3u8)
+    │
+    ▼
+┌──────────────────────┐
+│ Ctrl+V detected      │
+│ os.path.isfile() ✓   │
+└──────┬───────────────┘
+       │
+       ▼
+┌──────────────────────┐
+│ Read file content    │
+│ Store in             │
+│ _local_m3u8_content  │
+│ Set URL to file path │
+└──────┬───────────────┘
+       │
+       ▼
+┌──────────────────────┐
+│ parse_and_create()   │
+│ Detect local file    │
+│ Re-read & parse M3U8 │
+│ Extract resolutions  │
+└──────┬───────────────┘
+       │
+       ▼
+┌──────────────────────┐
+│ _create_task()       │
+│ Pass local content   │
+│ to task object       │
+└──────┬───────────────┘
+       │
+       ▼
+┌──────────────────────┐
+│ downloader_m3u8.py   │
+│ Use local content    │
+│ (skip fetch_m3u8)    │
+│ Download segments    │
+│ from remote URLs     │
+└──────────────────────┘
+```
+
+### 9.3 Key Design
+
+- Local M3U8 content is stored in `task.local_m3u8_content`
+- Segment URLs inside the file are typically absolute (`https://...`)
+- The download engine uses these remote URLs directly
+- AES-128 key URLs are also resolved from the local content
+
+---
+
+## 10. MP4 URL Detection
+
+### 10.1 Problem
+
+Some M3U8 URLs contain `.mp4` in the path:
+
+```
+https://cdn.example.com/hls/video.mp4/master.m3u8?token=xxx
+```
+
+A naive regex like `\.mp4(\?\S*)?` would match this as an MP4 URL, causing the app to use the wrong download method.
+
+### 10.2 Solution
+
+Check if the URL path **ends with** `.mp4`, not just contains it:
+
+```python
+from urllib.parse import urlparse
+parsed = urlparse(url)
+is_mp4 = parsed.path.rstrip('/').lower().endswith('.mp4')
+```
+
+This correctly distinguishes:
+- `https://example.com/video.mp4` → MP4 ✓
+- `https://example.com/video.mp4?token=xxx` → MP4 ✓
+- `https://example.com/hls/video.mp4/master.m3u8` → M3U8 ✓
+
+---
+
+## 11. Complete Download Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
