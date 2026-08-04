@@ -1,4 +1,4 @@
-"""m3u8-dl-hls-gui v0.20 - CustomTkinter 桌面应用"""
+"""m3u8-dl-hls-gui v0.21 - CustomTkinter 桌面应用"""
 
 import os
 import sys
@@ -472,7 +472,7 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self._dnd_available = False
-        self.title("m3u8-dl-hls-gui v0.20")
+        self.title("m3u8-dl-hls-gui v0.21")
         self.geometry("930x620")
         self.minsize(750, 500)
         self.configure(fg_color=COLORS["bg"])
@@ -602,11 +602,10 @@ class App(ctk.CTk):
             workers = max(1, min(100, int(self.workers_var.get())))
         except ValueError:
             workers = 20
-        self.config_data = {
-            "workers": workers,
-            "proxy": self.proxy_var.get().strip(),
-            "headers": self.referer_var.get().strip(),
-        }
+        # 保留 config 中已有的隐藏选项（如 ffmpeg_concurrency），避免被覆盖
+        self.config_data["workers"] = workers
+        self.config_data["proxy"] = self.proxy_var.get().strip()
+        self.config_data["headers"] = self.referer_var.get().strip()
         save_config(self.config_data, CONFIG_FILE)
 
     def _browse_dir(self):

@@ -4,9 +4,28 @@ import os
 import shutil
 import logging
 import subprocess
+import threading
 from typing import List
 
 logger = logging.getLogger(__name__)
+
+# 限制同时合并的 FFmpeg 进程数（避免多任务同时合并时磁盘 I/O 竞争）
+# 默认 2，可通过 config.json 中的 ffmpeg_concurrency 配置
+_merge_semaphore = None
+_merge_concurrency = 0
+
+
+def _get_merge_semaphore():
+    """获取合并信号量，支持从 config 动态读取并发数"""
+    global _merge_semaphore, _merge_concurrency
+    from utils import load_config, get_base_dir
+    config_file = os.path.join(get_base_dir(), "config.json")
+    config = load_config(config_file)
+    new_limit = max(1, min(16, config.get("ffmpeg_concurrency", 2)))
+    if _merge_semaphore is None or new_limit != _merge_concurrency:
+        _merge_semaphore = threading.Semaphore(new_limit)
+        _merge_concurrency = new_limit
+    return _merge_semaphore
 
 
 def merge_fmp4(
@@ -101,16 +120,20 @@ def mux_audio_video(
     ]
 
     try:
-        startupinfo = None
-        if os.name == "nt":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = subprocess.SW_HIDE
+        _get_merge_semaphore().acquire()
+        try:
+            startupinfo = None
+            if os.name == "nt":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = subprocess.SW_HIDE
 
-        result = subprocess.run(
-            cmd, capture_output=True, timeout=600,
-            startupinfo=startupinfo,
-        )
+            result = subprocess.run(
+                cmd, capture_output=True, timeout=600,
+                startupinfo=startupinfo,
+            )
+        finally:
+            _get_merge_semaphore().release()
 
         if result.returncode != 0:
             err = result.stderr.decode("utf-8", errors="replace")[-500:]
@@ -168,19 +191,24 @@ def merge_ts_files(ts_files: List[str], output_path: str) -> bool:
 
         logger.info(f"执行 FFmpeg remux: {' '.join(cmd[:6])}...")
 
-        # 执行 FFmpeg（隐藏控制台窗口）
-        startupinfo = None
-        if os.name == "nt":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = subprocess.SW_HIDE
+        # 限制并发合并数，避免磁盘 I/O 竞争
+        _get_merge_semaphore().acquire()
+        try:
+            # 执行 FFmpeg（隐藏控制台窗口）
+            startupinfo = None
+            if os.name == "nt":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = subprocess.SW_HIDE
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            timeout=3600,  # 1 小时超时（大文件可能需要很长时间）
-            startupinfo=startupinfo,
-        )
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=3600,  # 1 小时超时（大文件可能需要很长时间）
+                startupinfo=startupinfo,
+            )
+        finally:
+            _get_merge_semaphore().release()
 
         if result.returncode != 0:
             err = result.stderr.decode("utf-8", errors="replace")[-500:]
