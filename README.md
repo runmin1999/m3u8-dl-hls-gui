@@ -18,7 +18,7 @@
 | Feature | Description |
 |---------|-------------|
 | **M3U8 Parsing** | Supports Master Playlist (multi-bitrate) and Media Playlist; auto-resolves relative URLs |
-| **MP4 Direct Download** | Multi-threaded Range download with resume support |
+| **MP4 Direct Download** | curl.exe parallel multi-connection download with auto-retry and resume |
 | **Auto Format Detection** | Automatically detects M3U8/MP4 URLs |
 | **Multi-threaded Download** | Connection-pool-based engine, 1-100 configurable workers (default 20) |
 | **AES-128 Decryption** | Auto-detects `#EXT-X-KEY`, decrypts with IV support and key caching |
@@ -168,11 +168,22 @@ m3u8-dl-hls-gui/
 {
   "workers": 20,
   "proxy": "",
-  "headers": "https://example.com/"
+  "headers": "https://example.com/",
+  "ffmpeg_concurrency": 2,
+  "parallel_max": 8
 }
 ```
 
 ## Changelog
+
+### v0.22
+
+- ✨ **MP4 download engine upgrade** — Switched from Python requests multi-threaded to `curl.exe --parallel` for faster, more stable downloads
+- ✨ **Auto-retry resume** — Automatically retries up to 10 times on failure with HTTP Range resume support
+- ✨ **Parallel max config** — Added hidden `parallel_max` config option (default 8, range 1-32) to control curl parallel connections
+- 🔧 **FFmpeg concurrency config** — Added hidden `ffmpeg_concurrency` config option for concurrent merge processes
+- 🐛 **Fix right-click menu** — Menu buttons now work correctly; menu dismisses when clicking outside the app
+- 🔧 **Download speed optimization** — Added `--parallel-immediate` for faster parallel transfer startup
 
 ### v0.20
 

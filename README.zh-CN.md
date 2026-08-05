@@ -18,7 +18,7 @@
 | 功能 | 说明 |
 |------|------|
 | **M3U8 解析** | 支持 Master Playlist（多码率）和 Media Playlist，自动拼接相对 URL |
-| **MP4 直链下载** | 多线程 Range 分块下载，支持断点续传 |
+| **MP4 直链下载** | 基于 curl.exe 并行多连接下载，自动重试续传 |
 | **自动格式识别** | 自动识别 M3U8/MP4 链接 |
 | **多线程下载** | 基于连接池的并发引擎，1-100 线程可调（默认 20） |
 | **AES-128 解密** | 自动检测 `#EXT-X-KEY` 并解密，支持 IV 向量和密钥缓存 |
@@ -168,11 +168,22 @@ m3u8-dl-hls-gui/
 {
   "workers": 20,
   "proxy": "",
-  "headers": "https://example.com/"
+  "headers": "https://example.com/",
+  "ffmpeg_concurrency": 2,
+  "parallel_max": 8
 }
 ```
 
 ## 更新日志
+
+### v0.22
+
+- ✨ **MP4 下载引擎升级** — 从 Python requests 多线程切换为 `curl.exe --parallel` 并行下载，速度更快更稳定
+- ✨ **自动重试续传** — 下载失败自动重试最多 10 次，支持 HTTP Range 断点续传
+- ✨ **并行连接数配置** — 新增隐藏配置项 `parallel_max`（默认 8，范围 1-32），控制 curl 并行连接数
+- 🔧 **FFmpeg 并发配置** — 新增隐藏配置项 `ffmpeg_concurrency`，控制并发合并进程数
+- 🐛 **修复右键菜单** — 菜单按钮现在可以正常使用；点击软件外部时菜单自动关闭
+- 🔧 **下载速度优化** — 添加 `--parallel-immediate` 加速并行传输启动
 
 ### v0.20
 

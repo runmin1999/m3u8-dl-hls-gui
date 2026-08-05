@@ -366,6 +366,11 @@ class TaskCard(ctk.CTkFrame):
                 label, fg, hover_bg, cmd = item
                 def make_cmd(c=cmd):
                     def callback():
+                        # 取消待执行的关闭，先执行命令
+                        pending = getattr(self, '_dismiss_pending', None)
+                        if pending:
+                            self.after_cancel(pending)
+                            self._dismiss_pending = None
                         self._hide_context_menu()
                         c()
                     return callback
@@ -481,6 +486,7 @@ class App(ctk.CTk):
         self.tasks = _load_tasks()            # 加载历史任务
         self.task_cards = {}                  # task_id → TaskCard 映射
         self._active_context_menu = None      # 当前打开的右键菜单 (menu, owner_card)
+        self._dismiss_pending = None           # 延迟关闭的 after ID
 
         self._build_ui()
         self._refresh_task_list()
@@ -933,7 +939,12 @@ class App(ctk.CTk):
         self.after(duration, toast.destroy)
 
     def _dismiss_context_menu(self, event=None):
-        """关闭当前打开的右键菜单"""
+        """关闭当前打开的右键菜单（延迟50ms，避免按钮命令被中断）"""
+        self._dismiss_pending = self.after(150, self._do_dismiss_context_menu)
+
+    def _do_dismiss_context_menu(self):
+        """实际执行关闭右键菜单"""
+        self._dismiss_pending = None
         if self._active_context_menu and isinstance(self._active_context_menu, tuple):
             menu, owner = self._active_context_menu
             try:

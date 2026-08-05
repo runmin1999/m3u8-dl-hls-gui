@@ -27,7 +27,7 @@ TASKS_HISTORY_FILE = os.path.join(BASE_DIR, "tasks_history.json")
 def fetch_m3u8(url, headers=None, proxy=""):
     """获取 m3u8 文件内容，带重试和SSL错误处理"""
     req_headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
         **(headers or {})
     }
     proxies = {"http": proxy, "https": proxy} if proxy else None
@@ -146,3 +146,64 @@ def load_tasks(tasks_file):
     except Exception as e:
         logger.warning(f"加载任务失败: {e}")
     return tasks
+
+
+def check_mp4_moov_position(file_path):
+    """
+    检测 MP4 文件的 MOOV atom 是否在文件头部。
+
+    MP4 文件由一个个 box 组成，每个 box 格式：[4字节大小][4字节类型]
+    常见顶层 box：ftyp, moov, mdat, free, widev
+
+    返回: "faststart" (MOOV在前，正常) / "normal" (MOOV在后，播放可能卡死) / "corrupt" (文件无MOOV，损坏) / "unknown"
+    """
+    try:
+        file_size = os.path.getsize(file_path)
+        if file_size < 8:
+            return "corrupt"
+
+        with open(file_path, "rb") as f:
+            # 读取头部用于 box 解析
+            header = f.read(min(2048, file_size))
+
+            # 首先在头部查找 moov
+            pos = 0
+            header_boxes = []
+            moov_in_header = False
+            mdat_in_header = False
+            while pos + 8 <= len(header):
+                box_size = int.from_bytes(header[pos:pos+4], 'big')
+                box_type = header[pos+4:pos+8].decode('ascii', errors='ignore')
+
+                if box_size < 8:
+                    break
+
+                header_boxes.append(box_type)
+                if box_type == "moov":
+                    moov_in_header = True
+                if box_type == "mdat":
+                    mdat_in_header = True
+
+                pos += box_size
+
+            if moov_in_header:
+                return "faststart"
+
+            # 头部没有 moov，检查文件尾部是否有 moov
+            # 读取文件最后 4096 字节搜索 moov box
+            tail_size = min(4096, file_size)
+            f.seek(max(0, file_size - tail_size))
+            tail = f.read()
+
+            # 在尾部搜索 "moov" 字符串（简单启发式）
+            tail_text = tail.decode('ascii', errors='ignore')
+            if "moov" in tail_text:
+                return "normal"
+
+            # 头部有 mdat 但整个文件都没有 moov → 文件损坏/不完整
+            if mdat_in_header or len(header_boxes) > 0:
+                return "corrupt"
+
+            return "unknown"
+    except Exception:
+        return "unknown"

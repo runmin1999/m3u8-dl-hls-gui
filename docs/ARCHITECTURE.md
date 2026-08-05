@@ -191,50 +191,92 @@ with _lock:
 
 ### 3.1 Overview
 
-MP4 direct download uses HTTP Range requests for multi-threaded parallel downloading of a single file.
+MP4 direct download uses `curl.exe --parallel` for high-performance multi-connection downloading with automatic retry and resume support.
 
-### 3.2 Range Support Detection
-
-```
-Probe server support:
-    │
-    ├── 1. HEAD request → check Accept-Ranges header
-    ├── 2. GET request → fallback if HEAD fails
-    └── 3. Range test → send Range: bytes=0-0, check for 206 response
-         │
-         ├── 206 Partial Content → supports Range ✓
-         └── 200 OK → doesn't support Range ✗
-```
-
-### 3.3 Multi-threaded Range Download
+### 3.2 Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    MP4 Download                          │
+│                    MP4 Download (curl.exe)                │
 ├─────────────────────────────────────────────────────────┤
 │                                                         │
-│  File: 100MB, Workers: 4                                │
+│  curl.exe --parallel --parallel-max N                   │
 │                                                         │
-│  T1: Range bytes=0-24999999      → 0-25MB              │
-│  T2: Range bytes=25000000-49999999 → 25-50MB            │
-│  T3: Range bytes=50000000-74999999 → 50-75MB            │
-│  T4: Range bytes=75000000-99999999 → 75-100MB           │
+│  ┌─────────┬─────────┬─────────┬─────────┐             │
+│  │Conn 1   │Conn 2   │Conn 3   │Conn N   │             │
+│  └────┬────┘└────┬───┘└────┬───┘└────┬───┘             │
+│       │          │         │         │                  │
+│       ▼          ▼         ▼         ▼                  │
+│  ┌─────────────────────────────────────────┐            │
+│  │         Single output file (.tmp)       │            │
+│  │         curl writes directly            │            │
+│  └─────────────────────────────────────────┘            │
 │                                                         │
-│  Each thread writes directly to file at correct offset  │
-│  using seek() + write()                                 │
+│  Python monitors:                                       │
+│  - File size → progress & speed                         │
+│  - Process alive → completion detection                 │
+│  - Stop/pause flags → kill & resume                     │
 │                                                         │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 3.4 Resume Support
+### 3.3 Auto-retry Resume
 
 ```
-Resume flow:
+Download in progress
     │
-    ├── Check _mp4_downloaded (saved progress)
-    ├── Check .tmp file exists and size matches
-    ├── If match → Range: bytes=<downloaded>- (continue)
-    └── If no match → start from beginning
+    ▼ curl exits (network error, timeout, etc.)
+    │
+    ▼ Check final file size
+    │
+    ├── Complete → rename .tmp → .mp4, done ✓
+    │
+    ├── Incomplete → retry_count++
+    │   │
+    │   ├── retry_count < 10 → wait 2s, restart with -C - (resume)
+    │   │
+    │   └── retry_count >= 10 → mark as failed
+    │
+    └── No file → retry_count++, restart
+```
+
+### 3.4 Pause/Resume Mechanism
+
+```
+User clicks "Pause"
+    │
+    ▼
+┌──────────────────┐
+│ task._pause_flag  │
+│ = True            │
+└──────────────────┘
+        │
+        ▼ Monitor loop detects pause
+┌──────────────────┐
+│ proc.kill()      │ ← Kill curl process
+│                  │
+│ while _pause_flag│
+│   sleep(0.3)     │ ← Wait for unpause
+└──────────────────┘
+        │
+        ▼ User clicks "Resume"
+┌──────────────────┐
+│ _pause_flag =    │
+│   False           │
+│ Restart curl     │
+│ with -C -        │ ← Resume from last position
+└──────────────────┘
+```
+
+### 3.5 Configuration
+
+Hidden config options in `config.json`:
+
+```json
+{
+  "parallel_max": 8,         // curl parallel connections (1-32)
+  "ffmpeg_concurrency": 2    // FFmpeg concurrent merge processes (1-16)
+}
 ```
 
 ---
