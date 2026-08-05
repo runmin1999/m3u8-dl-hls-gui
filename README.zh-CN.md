@@ -199,14 +199,6 @@ m3u8-dl-hls-gui/
 - 🔧 **FFmpeg 检测增强** — 支持常见安装路径，启动时自动检测
 - 🔧 **版本统一** — 修复版本号不一致问题
 
-### v0.18
-
-- 🔧 **独立音频下载** — Master Playlist 中的独立音频轨道现在完整支持下载、解密、合并
-- 🔧 **EXT-X-MAP 多段支持** — 每个分片独立携带 init segment 引用，支持多个 EXT-X-MAP 条目
-- 🔧 **fMP4 检测增强** — 支持更多扩展名（.m4s, .cmfv, .cmfa）和 BYTERANGE 特征检测
-- 🔧 **输出验证** — 文件头校验（ftyp/sync byte），防止损坏文件误显示为完成
-- 🐛 **Bug 修复** — 修复 media_sequence 未传递给解密器、清理死代码
-
 ## 致谢
 
 核心模块（M3U8 解析、多线程下载、AES-128 解密、TS 合并）基于 [sdlw7757/M3U8-down](https://github.com/sdlw7757/M3U8-down) 开发。原项目采用 Flask + WebSocket 网页界面，本项目将 GUI 层重写为 CustomTkinter 桌面应用，并新增 MP4 下载、PyInstaller 打包、分辨率选择、剪贴板自动识别、配置自动保存等功能。
