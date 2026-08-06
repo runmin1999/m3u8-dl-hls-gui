@@ -48,6 +48,17 @@ def _create_session(headers: dict, proxy: str) -> requests.Session:
     return session
 
 
+def _interruptible_wait(seconds: float, stop_check: Optional[Callable[[], bool]] = None, interval: float = 0.1):
+    """可中断的等待，支持停止信号检查"""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if stop_check and stop_check():
+            return False
+        remaining = deadline - time.monotonic()
+        time.sleep(min(interval, max(0, remaining)))
+    return True
+
+
 def download_segment(
     segment: Segment,
     save_path: str,
@@ -92,9 +103,11 @@ def download_segment(
             # 构建请求头（支持 BYTERANGE）
             req_headers = {}
             if segment.byterange:
+                if "@" not in segment.byterange:
+                    raise ValueError(f"未标准化的 BYTERANGE：{segment.byterange}")
                 parts = segment.byterange.split("@")
                 length = int(parts[0])
-                offset = int(parts[1]) if len(parts) > 1 else 0
+                offset = int(parts[1])
                 end = offset + length - 1
                 req_headers["Range"] = f"bytes={offset}-{end}"
 
@@ -106,6 +119,21 @@ def download_segment(
                 headers=req_headers,
             )
             resp.raise_for_status()
+
+            # 校验 Range 响应
+            if segment.byterange:
+                if resp.status_code != 200:
+                    # 服务器返回非200，检查是否为206 Partial Content
+                    if resp.status_code != 206:
+                        raise ValueError(
+                            f"分片 {segment.index} Range 请求返回 {resp.status_code}，期望 206"
+                        )
+                # 如果服务器忽略 Range 返回完整文件（200），拒绝保存
+                if resp.status_code == 200:
+                    raise ValueError(
+                        f"分片 {segment.index} 服务器忽略 Range 请求，返回完整文件"
+                    )
+
             # 写入临时文件
             with open(tmp_path, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=8192):
@@ -117,7 +145,7 @@ def download_segment(
             # 写完成后原子重命名（os.replace 在 Windows 上也是原子操作）
             os.replace(tmp_path, save_path)
             return True
-        except (requests.RequestException, OSError, PermissionError) as e:
+        except (requests.RequestException, OSError, PermissionError, ValueError) as e:
             # 清理可能残留的临时文件
             if os.path.exists(tmp_path):
                 try:
@@ -127,7 +155,7 @@ def download_segment(
             if attempt < MAX_RETRIES:
                 wait = attempt * 1  # 线性退避：1s, 2s, 3s, 4s
                 logger.debug(f"分片 {segment.index} 下载失败（第{attempt}次），{wait}秒后重试: {e}")
-                time.sleep(wait)
+                _interruptible_wait(wait, stop_check)
             else:
                 logger.error(f"分片 {segment.index} 下载失败，已达最大重试次数: {e}")
     return False
@@ -167,14 +195,23 @@ def download_init_segment(
 
             req_headers = {}
             if byterange:
+                if "@" not in byterange:
+                    raise ValueError(f"未标准化的 BYTERANGE：{byterange}")
                 parts = byterange.split("@")
                 length = int(parts[0])
-                offset = int(parts[1]) if len(parts) > 1 else 0
+                offset = int(parts[1])
                 end = offset + length - 1
                 req_headers["Range"] = f"bytes={offset}-{end}"
 
             resp = session.get(init_url, timeout=REQUEST_TIMEOUT, stream=True, headers=req_headers)
             resp.raise_for_status()
+
+            # 校验 Range 响应
+            if byterange:
+                if resp.status_code != 206:
+                    if resp.status_code == 200:
+                        raise ValueError("Init segment 服务器忽略 Range 请求，返回完整文件")
+                    raise ValueError(f"Init segment Range 请求返回 {resp.status_code}，期望 206")
 
             with open(tmp_path, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=8192):
@@ -186,14 +223,14 @@ def download_init_segment(
             os.replace(tmp_path, save_path)
             logger.info(f"Init segment 下载完成: {save_path}")
             return True
-        except (requests.RequestException, OSError, PermissionError) as e:
+        except (requests.RequestException, OSError, PermissionError, ValueError) as e:
             if os.path.exists(tmp_path):
                 try:
                     os.remove(tmp_path)
                 except OSError:
                     pass
             if attempt < MAX_RETRIES:
-                time.sleep(attempt * 1)
+                _interruptible_wait(attempt * 1, stop_check)
             else:
                 logger.error(f"Init segment 下载失败: {e}")
     return False
@@ -232,6 +269,9 @@ def download_all(
 
     Returns:
         成功下载的分片文件路径列表（按分片顺序排列）
+
+    Raises:
+        RuntimeError: 非停止状态下仍有分片缺失
     """
     try:
         os.makedirs(temp_dir, exist_ok=True)
@@ -402,9 +442,27 @@ def download_all(
 
 
 def _build_result_list(results: dict, segments: List[Segment]) -> List[str]:
-    """按分片原始顺序构建结果列表（确保合并时顺序正确）"""
+    """
+    按分片原始顺序构建结果列表（确保合并时顺序正确）
+
+    Raises:
+        RuntimeError: 有分片缺失或文件无效
+    """
+    missing = [seg.index for seg in segments if seg.index not in results]
+    if missing:
+        preview = ", ".join(str(i) for i in missing[:20])
+        suffix = "..." if len(missing) > 20 else ""
+        raise RuntimeError(
+            f"分片下载不完整：预期 {len(segments)} 个，"
+            f"成功 {len(results)} 个，缺失 {len(missing)} 个："
+            f"{preview}{suffix}"
+        )
+
     ordered = []
     for seg in segments:
-        if seg.index in results:
-            ordered.append(results[seg.index])
+        path = results[seg.index]
+        if not os.path.isfile(path) or os.path.getsize(path) <= 0:
+            raise RuntimeError(f"分片文件无效：{path}")
+        ordered.append(path)
+
     return ordered

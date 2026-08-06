@@ -36,6 +36,9 @@ def fetch_key(key_url: str, headers: dict = None, proxy: str = "") -> bytes:
 
     Returns:
         16 字节密钥
+
+    Raises:
+        ValueError: 密钥长度不是 16 字节
     """
     # 先查缓存
     if key_url in _key_cache:
@@ -48,7 +51,9 @@ def fetch_key(key_url: str, headers: dict = None, proxy: str = "") -> bytes:
     resp.raise_for_status()
     key = resp.content
     if len(key) != 16:
-        logger.warning(f"密钥长度为 {len(key)} 字节，期望 16 字节")
+        raise ValueError(
+            f"AES-128 密钥长度错误：期望 16 字节，实际 {len(key)} 字节"
+        )
 
     # 写入缓存（线程安全）
     with _key_cache_lock:
@@ -96,17 +101,28 @@ def _unpad_pkcs7(data: bytes) -> bytes:
 
     PKCS7 填充规则：在数据末尾添加 N 个值为 N 的字节（N = 1~16）。
     例如：原始数据 14 字节 → 填充 2 个 0x02 → 总长 16 字节。
+
+    Raises:
+        ValueError: 填充无效
     """
     if not data:
-        return data
+        raise ValueError("解密结果为空")
+
     pad_len = data[-1]
-    # 填充长度必须在 1-16 范围内
     if pad_len < 1 or pad_len > 16:
-        return data
-    # 验证填充字节是否一致（防止误判）
-    if data[-pad_len:] != bytes([pad_len]) * pad_len:
-        return data
+        raise ValueError("PKCS7 填充长度无效")
+
+    expected = bytes([pad_len]) * pad_len
+    if data[-pad_len:] != expected:
+        raise ValueError("PKCS7 填充内容无效")
+
     return data[:-pad_len]
+
+
+def _extract_segment_index(filepath: str) -> int:
+    """从文件名中提取分片序号（如 000042.ts → 42）"""
+    stem = os.path.splitext(os.path.basename(filepath))[0]
+    return int(stem)
 
 
 def decrypt_files(
@@ -131,32 +147,66 @@ def decrypt_files(
 
     Returns:
         解密后的文件路径列表（与输入相同）
+
+    Raises:
+        ValueError: 不支持的加密方式
+        RuntimeError: 任一分片解密失败
     """
+    # 按 index 构建文件映射（不再依赖 zip 的位置对应）
+    file_by_index: dict[int, str] = {}
+    for filepath in file_paths:
+        idx = _extract_segment_index(filepath)
+        if idx in file_by_index:
+            raise RuntimeError(f"分片 {idx} 有重复文件：{file_by_index[idx]} 和 {filepath}")
+        file_by_index[idx] = filepath
+
+    # 验证每个 segment 都有对应文件
+    for seg in segments:
+        if seg.index not in file_by_index:
+            raise RuntimeError(f"分片 {seg.index} 没有对应的下载文件")
+
     decrypted_paths = []
 
-    for filepath, seg in zip(file_paths, segments):
+    for seg in segments:
+        filepath = file_by_index[seg.index]
+
         if not seg.encryption_method or seg.encryption_method == "NONE":
             # 无需解密，直接保留
             decrypted_paths.append(filepath)
             continue
 
+        # 检查加密方法
+        method = seg.encryption_method.upper()
+        if method not in ("", "NONE", "AES-128"):
+            raise ValueError(f"暂不支持的加密方式：{method}")
+
         try:
-            # 获取 AES 密钥（带缓存）
+            # 获取 AES 密钥（带缓存，长度校验在 fetch_key 中）
             key = fetch_key(seg.key_url, headers, proxy)
             # 读取加密数据
             with open(filepath, "rb") as f:
                 encrypted_data = f.read()
-            # 使用分片自己的 IV，如果没有则用 media_sequence
-            iv = seg.iv if seg.iv else media_sequence.to_bytes(16, byteorder='big')
+            # 使用分片自己的 IV：显式 IV 优先，否则用分片自己的 media_sequence number
+            iv = seg.iv if seg.iv else seg.index.to_bytes(16, byteorder='big')
             # AES-128-CBC 解密
-            decrypted_data = decrypt_segment(encrypted_data, key, iv, media_sequence=media_sequence)
-            # 覆盖写回原文件
-            with open(filepath, "wb") as f:
-                f.write(decrypted_data)
+            decrypted_data = decrypt_segment(encrypted_data, key, iv, media_sequence=seg.index)
+            # 原子写入：先写临时文件，再 replace
+            tmp_path = filepath + ".decrypting"
+            try:
+                with open(tmp_path, "wb") as f:
+                    f.write(decrypted_data)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, filepath)
+            finally:
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
             decrypted_paths.append(filepath)
             logger.debug(f"分片 {seg.index} 解密成功")
         except Exception as e:
-            logger.error(f"分片 {seg.index} 解密失败: {e}")
-            decrypted_paths.append(filepath)  # 解密失败时保留原文件
+            raise RuntimeError(f"分片 {seg.index} 解密失败：{e}") from e
 
     return decrypted_paths

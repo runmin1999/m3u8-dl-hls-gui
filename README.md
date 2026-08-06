@@ -9,7 +9,7 @@
 - M3U8 & MP4 direct download with auto-detection
 - Multi-threaded concurrent downloads with connection pool optimization
 - AES-128 transparent decryption
-- Pause / Resume / Stop with fast response (<0.5s)
+- Pause / Resume / Stop with responsive task controls
 - Per-task resolution selection
 - One-click exe packaging via PyInstaller
 
@@ -18,14 +18,14 @@
 | Feature | Description |
 |---------|-------------|
 | **M3U8 Parsing** | Supports Master Playlist (multi-bitrate) and Media Playlist; auto-resolves relative URLs |
-| **MP4 Direct Download** | curl.exe parallel multi-connection download with auto-retry and resume |
+| **MP4 Direct Download** | curl-based direct download with retry and resume support |
 | **Auto Format Detection** | Automatically detects M3U8/MP4 URLs |
 | **Multi-threaded Download** | Connection-pool-based engine, 1-100 configurable workers (default 20) |
 | **AES-128 Decryption** | Auto-detects `#EXT-X-KEY`, decrypts with IV support and key caching |
 | **Resume Support** | M3U8: atomic writes + segment index tracking; MP4: HTTP Range headers |
 | **Resolution Selection** | Per-task dropdown; auto-selects highest bitrate by default |
 | **Real-time Progress** | Progress bar, segment counter, and live download speed |
-| **Fast Controls** | Pause/Stop response <0.5s; Delete with background cleanup |
+| **Fast Controls** | Responsive pause/resume/stop; Delete with background cleanup |
 | **Clipboard Auto-detect** | Auto-fills URL from clipboard when URL field is empty |
 | **Smart Paste** | Ctrl+V detects M3U8/MP4 links and fills URL field automatically |
 | **Local M3U8 Support** | Paste local .m3u8 file path via Ctrl+V to download directly |
@@ -169,21 +169,23 @@ m3u8-dl-hls-gui/
   "workers": 20,
   "proxy": "",
   "headers": "https://example.com/",
-  "ffmpeg_concurrency": 2,
-  "parallel_max": 8
+  "ffmpeg_concurrency": 2
 }
 ```
 
 ## Changelog
 
-### v0.22
+### v0.23
 
-- ✨ **MP4 download engine upgrade** — Switched from Python requests multi-threaded to `curl.exe --parallel` for faster, more stable downloads
-- ✨ **Auto-retry resume** — Automatically retries up to 10 times on failure with HTTP Range resume support
-- ✨ **Parallel max config** — Added hidden `parallel_max` config option (default 8, range 1-32) to control curl parallel connections
-- 🔧 **FFmpeg concurrency config** — Added hidden `ffmpeg_concurrency` config option for concurrent merge processes
-- 🐛 **Fix right-click menu** — Menu buttons now work correctly; menu dismisses when clicking outside the app
-- 🔧 **Download speed optimization** — Added `--parallel-immediate` for faster parallel transfer startup
+- 🐛 Fix AES-128 implicit IV using wrong segment sequence number
+- 🐛 Fix decryption failure silently continuing into merge
+- 🐛 Fix incomplete segment downloads being treated as complete
+- 🐛 Fix EXT-X-BYTERANGE implicit offset and Range response validation
+- 🐛 Fix MP4 download failing when server has no Content-Length
+- 🔧 Remove ineffective curl parallel parameters for single-URL downloads
+- 🔧 Improve curl cross-platform lookup via PATH
+- 🔧 Config and task records now use atomic writes (temp file + fsync + replace)
+- 🔧 Improve stop responsiveness during retry waits
 
 ### v0.20
 

@@ -17,7 +17,7 @@ class Segment:
     key_url: str = ""           # 密钥下载地址
     iv: bytes = b""             # 初始化向量（16 字节）
     # EXT-X-BYTERANGE 支持
-    byterange: str = ""         # 字节范围（如 "1000@0"：长度@偏移）
+    byterange: str = ""         # 字节范围（标准化格式："长度@偏移"）
     # fMP4 初始化段信息（从 EXT-X-MAP 继承）
     init_segment_url: str = ""       # 当前分片关联的 init segment 地址
     init_segment_byterange: str = "" # 当前分片关联的 init segment BYTERANGE
@@ -144,6 +144,35 @@ def _parse_master(lines: list, base_url: str, playlist: M3U8Playlist):
             current_stream = None
 
 
+def _parse_byterange_value(raw: str) -> tuple:
+    """
+    解析 BYTERANGE 值为 (length, offset) 元组
+
+    格式：长度@偏移 或 长度（隐式偏移）
+
+    Raises:
+        ValueError: 格式无效
+    """
+    raw = raw.strip()
+    if not raw:
+        raise ValueError("BYTERANGE 为空")
+
+    if "@" in raw:
+        length_text, offset_text = raw.split("@", 1)
+        length = int(length_text)
+        offset = int(offset_text)
+    else:
+        length = int(raw)
+        offset = None
+
+    if length <= 0:
+        raise ValueError("BYTERANGE length 必须大于 0")
+    if offset is not None and offset < 0:
+        raise ValueError("BYTERANGE offset 不能为负数")
+
+    return length, offset
+
+
 def _parse_media(lines: list, base_url: str, playlist: M3U8Playlist):
     """
     解析 Media Playlist
@@ -163,7 +192,9 @@ def _parse_media(lines: list, base_url: str, playlist: M3U8Playlist):
     key_url = ""
     iv = b""
     current_byterange = ""
-    last_seg_url = ""  # 用于 BYTERANGE 引用前一个分片 URL
+    # BYTERANGE 隐式偏移跟踪
+    last_range_uri = ""      # 上一个 BYTERANGE 分片的 URI
+    last_range_end = None    # 上一个 BYTERANGE 分片的 end offset
     current_init_url = ""        # 当前生效的 init segment URL
     current_init_byterange = ""  # 当前生效的 init segment BYTERANGE
 
@@ -215,11 +246,38 @@ def _parse_media(lines: list, base_url: str, playlist: M3U8Playlist):
             current_duration = float(duration_part.split(",")[0])
 
         elif not line.startswith("#"):
-            # 非注释行 = TS/fMP4 分片 URL，关联当前的时长、加密和字节范围信息
+            # 非注释行 = TS/fMP4 分片 URL
             seg_url = _resolve_url(base_url, line)
-            # BYTERANGE 模式：如果指定了字节范围，URL 沿用前一个分片
-            if current_byterange and last_seg_url:
-                seg_url = last_seg_url
+
+            # BYTERANGE 处理
+            if current_byterange:
+                length, offset = _parse_byterange_value(current_byterange)
+
+                if offset is not None:
+                    # 显式 offset：直接使用
+                    final_byterange = f"{length}@{offset}"
+                    last_range_uri = seg_url
+                    last_range_end = offset + length
+                else:
+                    # 隐式 offset：必须满足连续 BYTERANGE 条件
+                    if (last_range_end is not None
+                            and last_range_uri
+                            and seg_url == last_range_uri):
+                        # 同一 URI 的连续 BYTERANGE，使用上一个的 end 作为 offset
+                        final_byterange = f"{length}@{last_range_end}"
+                        last_range_end = last_range_end + length
+                    else:
+                        # 条件不满足：换了 URI 或前一个不是 BYTERANGE
+                        raise ValueError(
+                            f"BYTERANGE 隐式偏移无法推导："
+                            f"URI 从 '{last_range_uri}' 变为 '{seg_url}'"
+                            f"，或前一个分片不是 BYTERANGE"
+                        )
+            else:
+                final_byterange = ""
+                last_range_uri = ""
+                last_range_end = None
+
             seg = Segment(
                 url=seg_url,
                 duration=current_duration,
@@ -227,13 +285,12 @@ def _parse_media(lines: list, base_url: str, playlist: M3U8Playlist):
                 encryption_method=enc_method,
                 key_url=key_url,
                 iv=iv,
-                byterange=current_byterange,
+                byterange=final_byterange,
                 init_segment_url=current_init_url,
                 init_segment_byterange=current_init_byterange,
             )
             playlist.segments.append(seg)
             playlist.total_duration += current_duration
-            last_seg_url = seg_url
             seg_index += 1
             current_duration = 0.0
             current_byterange = ""

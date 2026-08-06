@@ -6,9 +6,13 @@ import time
 import ssl
 import logging
 import subprocess
+import threading
 import requests
 
 logger = logging.getLogger(__name__)
+
+# 模块级写锁，保护 JSON 文件写入
+_json_write_lock = threading.Lock()
 
 
 def get_base_dir():
@@ -22,6 +26,27 @@ def get_base_dir():
 # 任务历史文件路径（供 app.py 和 downloader 模块共同使用）
 BASE_DIR = get_base_dir()
 TASKS_HISTORY_FILE = os.path.join(BASE_DIR, "tasks_history.json")
+
+
+def _atomic_write_json(path, data):
+    """原子写入 JSON 文件：先写临时文件，fsync，再 replace"""
+    directory = os.path.dirname(os.path.abspath(path))
+    os.makedirs(directory, exist_ok=True)
+    tmp_path = path + ".tmp"
+
+    with _json_write_lock:
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
 
 
 def fetch_m3u8(url, headers=None, proxy=""):
@@ -117,19 +142,19 @@ def load_config(config_file):
 
 
 def save_config(config, config_file):
-    """保存配置到文件"""
+    """保存配置到文件（原子写入）"""
     try:
-        with open(config_file, "w", encoding="utf-8") as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
+        _atomic_write_json(config_file, config)
     except Exception as e:
         logger.warning(f"保存配置失败: {e}")
 
 
 def save_tasks(tasks_dict, tasks_file):
-    """保存任务列表到文件"""
+    """保存任务列表到文件（原子写入，先快照再写）"""
     try:
-        with open(tasks_file, "w", encoding="utf-8") as f:
-            json.dump([t.to_dict() for t in tasks_dict.values()], f, ensure_ascii=False, indent=2)
+        tasks = list(tasks_dict.values())
+        snapshot = [task.to_dict() for task in tasks]
+        _atomic_write_json(tasks_file, snapshot)
     except Exception as e:
         logger.warning(f"保存任务失败: {e}")
 

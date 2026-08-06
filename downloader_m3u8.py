@@ -45,8 +45,10 @@ def _download_audio_track(
         headers=headers, proxy=proxy, stop_check=stop_check,
     )
 
-    if not audio_files:
-        raise Exception("音频分片下载失败")
+    if len(audio_files) != len(audio_playlist.segments):
+        raise RuntimeError(
+            f"音频分片数量不一致：预期 {len(audio_playlist.segments)}，实际 {len(audio_files)}"
+        )
 
     if any(s.encryption_method for s in audio_playlist.segments):
         audio_files = decrypt_files(
@@ -226,8 +228,12 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
                 dl_session = _create_session(task.custom_headers, task.proxy)
                 init_path = os.path.join(temp_dir, "init.mp4")
                 br = playlist.init_segment_byterange
-                download_init_segment(playlist.init_segment_url, init_path, dl_session, byterange=br, stop_check=stop_check)
+                ok = download_init_segment(playlist.init_segment_url, init_path, dl_session, byterange=br, stop_check=stop_check)
                 dl_session.close()
+                if not ok:
+                    if task._stop_flag:
+                        return
+                    raise RuntimeError("初始化段下载失败")
             else:
                 init_path = ""
 
@@ -247,8 +253,10 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
 
             if task._stop_flag:
                 return
-            if not ts_files:
-                raise Exception("没有成功下载任何分片")
+            if len(ts_files) != len(playlist.segments):
+                raise RuntimeError(
+                    f"分片数量不一致：预期 {len(playlist.segments)}，实际 {len(ts_files)}"
+                )
 
             task.downloaded_segments = len(ts_files)
             task._downloaded_indices.clear()
@@ -286,8 +294,10 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
 
             if task._stop_flag:
                 return
-            if not ts_files:
-                raise Exception("没有成功下载任何分片")
+            if len(ts_files) != len(playlist.segments):
+                raise RuntimeError(
+                    f"分片数量不一致：预期 {len(playlist.segments)}，实际 {len(ts_files)}"
+                )
 
             task.downloaded_segments = len(ts_files)
             task._downloaded_indices.clear()

@@ -119,36 +119,36 @@ def mux_audio_video(
         output_path,
     ]
 
+    semaphore = _get_merge_semaphore()
+    semaphore.acquire()
     try:
-        _get_merge_semaphore().acquire()
-        try:
-            startupinfo = None
-            if os.name == "nt":
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = subprocess.SW_HIDE
+        startupinfo = None
+        if os.name == "nt":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
 
-            result = subprocess.run(
-                cmd, capture_output=True, timeout=600,
-                startupinfo=startupinfo,
-            )
-        finally:
-            _get_merge_semaphore().release()
-
-        if result.returncode != 0:
-            err = result.stderr.decode("utf-8", errors="replace")[-500:]
-            logger.error(f"FFmpeg mux 失败: {err}")
-            raise RuntimeError("FFmpeg mux 失败")
-
-        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-            raise RuntimeError("FFmpeg mux 输出文件为空")
-
-        logger.info(f"FFmpeg mux 完成: {output_path}")
-        return output_path
+        result = subprocess.run(
+            cmd, capture_output=True, timeout=600,
+            startupinfo=startupinfo,
+        )
     except subprocess.TimeoutExpired:
         raise RuntimeError("FFmpeg mux 超时")
     except FileNotFoundError:
         raise RuntimeError("未找到 FFmpeg")
+    finally:
+        semaphore.release()
+
+    if result.returncode != 0:
+        err = result.stderr.decode("utf-8", errors="replace")[-500:]
+        logger.error(f"FFmpeg mux 失败: {err}")
+        raise RuntimeError("FFmpeg mux 失败")
+
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        raise RuntimeError("FFmpeg mux 输出文件为空")
+
+    logger.info(f"FFmpeg mux 完成: {output_path}")
+    return output_path
 
 
 def merge_ts_files(ts_files: List[str], output_path: str) -> bool:
@@ -192,7 +192,8 @@ def merge_ts_files(ts_files: List[str], output_path: str) -> bool:
         logger.info(f"执行 FFmpeg remux: {' '.join(cmd[:6])}...")
 
         # 限制并发合并数，避免磁盘 I/O 竞争
-        _get_merge_semaphore().acquire()
+        semaphore = _get_merge_semaphore()
+        semaphore.acquire()
         try:
             # 执行 FFmpeg（隐藏控制台窗口）
             startupinfo = None
@@ -208,7 +209,7 @@ def merge_ts_files(ts_files: List[str], output_path: str) -> bool:
                 startupinfo=startupinfo,
             )
         finally:
-            _get_merge_semaphore().release()
+            semaphore.release()
 
         if result.returncode != 0:
             err = result.stderr.decode("utf-8", errors="replace")[-500:]

@@ -1,8 +1,9 @@
-"""MP4 直接下载模块：curl.exe --parallel 多连接下载"""
+"""MP4 直接下载模块：curl 直链下载，支持自动重试和断点续传"""
 
 import os
 import re
 import time
+import shutil
 import logging
 import subprocess
 import threading
@@ -16,12 +17,23 @@ CURL_HEADERS = {
 }
 
 
-def _build_curl_cmd(task, output_path, parallel_max, resume=False):
+def _find_curl():
+    """通过 PATH 查找 curl 可执行文件，返回实际路径"""
+    candidates = ("curl.exe", "curl") if os.name == "nt" else ("curl", "curl.exe")
+    for name in candidates:
+        path = shutil.which(name)
+        if path:
+            return path
+    return None
+
+
+def _build_curl_cmd(task, output_path, curl_path, resume=False):
     """构建 curl 命令行"""
     cmd = [
-        "curl.exe",
+        curl_path,
         "-L",
-        "-s",
+        "-sS",
+        "--fail",
         "-o", output_path,
         "--connect-timeout", "15",
         "--retry", "5",
@@ -31,8 +43,6 @@ def _build_curl_cmd(task, output_path, parallel_max, resume=False):
 
     if resume and os.path.exists(output_path):
         cmd.extend(["-C", "-"])
-
-    cmd.extend(["--parallel", "--parallel-max", str(parallel_max), "--parallel-immediate"])
 
     if task.proxy:
         cmd.extend(["-x", task.proxy])
@@ -53,19 +63,20 @@ def _get_file_size(path):
         return 0
 
 
-def _get_parallel_max(fallback=4):
-    """从 config.json 读取 parallel_max，范围 1-32"""
-    try:
-        from utils import load_config, get_base_dir
-        config_file = os.path.join(get_base_dir(), "config.json")
-        config = load_config(config_file)
-        return max(1, min(32, config.get("parallel_max", fallback)))
-    except Exception:
-        return fallback
+def _is_download_complete(return_code, final_size, total_size):
+    """判断下载是否完成"""
+    if return_code != 0:
+        return False
+    if final_size <= 0:
+        return False
+    if total_size <= 0:
+        # 无 Content-Length：curl 返回 0 且文件非空即完成
+        return True
+    return final_size >= total_size
 
 
 def run_download_mp4(task, tasks_dict, on_progress=None):
-    """MP4 下载（curl.exe --parallel 多连接，自动续传）"""
+    """MP4 下载（curl 直链，自动续传）"""
     if task.status != "downloading":
         return
     try:
@@ -83,9 +94,10 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
         if on_progress:
             on_progress(task)
 
-        if not _find_curl():
+        curl_path = _find_curl()
+        if not curl_path:
             task.status = "failed"
-            task.error = "未找到 curl.exe，请安装 curl 或添加到 PATH"
+            task.error = "未找到 curl，请安装 curl 或添加到 PATH"
             task.current_action = "失败"
             task.finished_at = datetime.now().isoformat()
             if on_progress:
@@ -95,13 +107,12 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
 
         output_path = os.path.join(task.output_dir, task.output_name)
         tmp_path = output_path + ".tmp"
-        parallel_max = _get_parallel_max(task.workers)
 
         task.current_action = "获取文件信息..."
         if on_progress:
             on_progress(task)
 
-        total_size = _probe_size(task)
+        total_size = _probe_size(task, curl_path)
         task.total_segments = total_size if total_size > 0 else 0
 
         task.downloaded_segments = 0
@@ -130,7 +141,7 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
             if on_progress:
                 on_progress(task)
 
-            cmd = _build_curl_cmd(task, tmp_path, parallel_max, resume=can_resume)
+            cmd = _build_curl_cmd(task, tmp_path, curl_path, resume=can_resume)
             logger.info(f"curl cmd: {' '.join(cmd[:8])}...")
 
             proc = subprocess.Popen(
@@ -206,16 +217,25 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
 
                 time.sleep(0.5)
 
-            # curl 已退出，等待进程
+            # curl 已退出，获取退出码和 stderr
             try:
-                proc.wait(timeout=5)
+                _, stderr_data = proc.communicate(timeout=5)
             except Exception:
-                pass
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                stderr_data = b""
+            return_code = proc.returncode
+
+            if return_code != 0:
+                err_tail = stderr_data.decode("utf-8", errors="replace")[-500:]
+                logger.warning(f"curl 退出码 {return_code}: {err_tail}")
 
             final_size = _get_file_size(tmp_path)
 
-            # 下载完成
-            if total_size > 0 and final_size >= total_size:
+            # 下载完成判断
+            if _is_download_complete(return_code, final_size, total_size):
                 os.replace(tmp_path, output_path)
                 task.status = "completed"
                 task.progress = 100
@@ -231,13 +251,13 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
             # 文件大小为0，没有生成文件
             if final_size == 0 and not os.path.exists(tmp_path):
                 retry_count += 1
-                time.sleep(2)
+                _interruptible_wait(2, task, my_dl_id)
                 continue
 
             # 下载不完整，重试
             retry_count += 1
             if retry_count < MAX_RETRIES:
-                time.sleep(2)
+                _interruptible_wait(2, task, my_dl_id)
                 continue
 
             # 重试次数用完
@@ -269,24 +289,21 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
         save_tasks(tasks_dict, TASKS_HISTORY_FILE)
 
 
-def _find_curl():
-    """检查 curl.exe 是否可用"""
-    try:
-        r = subprocess.run(
-            ["curl.exe", "--version"],
-            capture_output=True, timeout=5,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-        )
-        return r.returncode == 0
-    except Exception:
-        return False
+def _interruptible_wait(seconds, task, dl_id):
+    """可中断的等待，检查停止信号和 dl_id"""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if task._stop_flag or task._dl_id != dl_id:
+            return
+        remaining = deadline - time.monotonic()
+        time.sleep(min(0.3, max(0, remaining)))
 
 
-def _probe_size(task):
+def _probe_size(task, curl_path):
     """探测文件大小"""
     try:
         cmd = [
-            "curl.exe", "-sI", "-L",
+            curl_path, "-sI", "-L",
             "--connect-timeout", "10", "--max-time", "15",
         ]
         if task.proxy:
