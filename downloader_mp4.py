@@ -27,7 +27,7 @@ def _find_curl():
     return None
 
 
-def _build_curl_cmd(task, output_path, curl_path, resume=False):
+def _build_curl_cmd(task, output_path, curl_path, parallel_max=8, resume=False):
     """构建 curl 命令行"""
     cmd = [
         curl_path,
@@ -44,7 +44,7 @@ def _build_curl_cmd(task, output_path, curl_path, resume=False):
     if resume and os.path.exists(output_path):
         cmd.extend(["-C", "-"])
 
-    cmd.extend(["--parallel", "--parallel-max", "8", "--parallel-immediate"])
+    cmd.extend(["--parallel", "--parallel-max", str(parallel_max), "--parallel-immediate"])
 
     if task.proxy:
         cmd.extend(["-x", task.proxy])
@@ -63,6 +63,17 @@ def _get_file_size(path):
         return os.path.getsize(path)
     except OSError:
         return 0
+
+
+def _get_parallel_max(fallback=8):
+    """从 config.json 读取 parallel_max，范围 1-32"""
+    try:
+        from utils import load_config, get_base_dir
+        config_file = os.path.join(get_base_dir(), "config.json")
+        config = load_config(config_file)
+        return max(1, min(32, config.get("parallel_max", fallback)))
+    except Exception:
+        return fallback
 
 
 def _is_download_complete(return_code, final_size, total_size):
@@ -109,6 +120,7 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
 
         output_path = os.path.join(task.output_dir, task.output_name)
         tmp_path = output_path + ".tmp"
+        parallel_max = _get_parallel_max(task.workers)
 
         task.current_action = "获取文件信息..."
         if on_progress:
@@ -143,7 +155,7 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
             if on_progress:
                 on_progress(task)
 
-            cmd = _build_curl_cmd(task, tmp_path, curl_path, resume=can_resume)
+            cmd = _build_curl_cmd(task, tmp_path, curl_path, parallel_max=parallel_max, resume=can_resume)
             logger.info(f"curl cmd: {' '.join(cmd[:8])}...")
 
             proc = subprocess.Popen(

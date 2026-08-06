@@ -169,7 +169,8 @@ m3u8-dl-hls-gui/
   "workers": 20,
   "proxy": "",
   "headers": "https://example.com/",
-  "ffmpeg_concurrency": 2
+  "ffmpeg_concurrency": 2,
+  "parallel_max": 8
 }
 ```
 
