@@ -44,6 +44,8 @@ def _build_curl_cmd(task, output_path, curl_path, resume=False):
     if resume and os.path.exists(output_path):
         cmd.extend(["-C", "-"])
 
+    cmd.extend(["--parallel", "--parallel-max", "8", "--parallel-immediate"])
+
     if task.proxy:
         cmd.extend(["-x", task.proxy])
 

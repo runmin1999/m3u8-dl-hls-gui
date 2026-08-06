@@ -52,14 +52,14 @@ class TestBuildCurlCmd(unittest.TestCase):
         })()
         return task
 
-    def test_no_parallel_params(self):
-        """命令不应包含 parallel 参数"""
+    def test_has_parallel_params(self):
+        """命令应包含 parallel 参数用于 HTTP/2 多路复用"""
         task = self._make_task()
         cmd = _build_curl_cmd(task, "/tmp/out.mp4", "curl")
         cmd_str = " ".join(cmd)
-        self.assertNotIn("--parallel", cmd_str)
-        self.assertNotIn("--parallel-max", cmd_str)
-        self.assertNotIn("--parallel-immediate", cmd_str)
+        self.assertIn("--parallel", cmd_str)
+        self.assertIn("--parallel-max", cmd_str)
+        self.assertIn("--parallel-immediate", cmd_str)
 
     def test_has_sS_and_fail(self):
         """应包含 -sS 和 --fail"""
