@@ -177,6 +177,13 @@ m3u8-dl-hls-gui/
 
 ## Changelog
 
+### v0.25
+
+- ✨ **HLS compatibility** — Parse `EXT-X-ENDLIST` (VOD detection), `EXT-X-DISCONTINUITY` (logging), `EXT-X-PROGRAM-DATE-TIME`
+- ✨ **Live stream detection** — Streams without `EXT-X-ENDLIST` are flagged as live with warning
+- 🔧 **IV parsing robustness** — Handle missing `0x` prefix, colons, spaces; pad short IVs to 16 bytes
+- 🔧 **Decryptor edge cases** — Truncate non-block-aligned encrypted data with warning
+
 ### v0.24
 
 - ✨ **File integrity verification** — ffprobe checks duration, resolution, video/audio codec after download; results shown in task card

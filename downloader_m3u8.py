@@ -161,6 +161,12 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
         if not playlist.segments:
             raise Exception("未找到TS分片")
 
+        # HLS 兼容性检查
+        if playlist.is_live:
+            logger.warning("检测到直播流（无 EXT-X-ENDLIST），将下载当前可用的分片")
+        if playlist.discontinuity_count > 0:
+            logger.info(f"播放列表包含 {playlist.discontinuity_count} 个 DISCONTINUITY 标记")
+
         # 检测格式：fMP4 还是 TS
         is_fmp4 = False
         if playlist.init_segment_url:

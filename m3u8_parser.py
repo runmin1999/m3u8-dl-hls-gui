@@ -54,6 +54,10 @@ class M3U8Playlist:
     # 音频/字幕轨道列表
     audio_tracks: List[StreamInfo] = field(default_factory=list)
     subtitle_tracks: List[StreamInfo] = field(default_factory=list)
+    # HLS 兼容性标志
+    is_endlist: bool = False             # 是否有 EXT-X-ENDLIST（VOD 标志）
+    is_live: bool = False                # 是否为直播流（无 ENDLIST）
+    discontinuity_count: int = 0         # EXT-X-DISCONTINUITY 出现次数
 
 
 def parse_m3u8(content: str, base_url: str = "") -> M3U8Playlist:
@@ -185,6 +189,9 @@ def _parse_media(lines: list, base_url: str, playlist: M3U8Playlist):
     #EXTINF:9.009,
     segment001.ts
     """
+    import logging
+    _logger = logging.getLogger(__name__)
+
     current_duration = 0.0
     seg_index = playlist.media_sequence
     # 当前生效的加密参数（EXT-X-KEY 会向下传递给后续分片，直到遇到新的 EXT-X-KEY）
@@ -211,6 +218,23 @@ def _parse_media(lines: list, base_url: str, playlist: M3U8Playlist):
             # 分片起始序号（直播流/时移流使用）
             playlist.media_sequence = int(line.split(":")[1])
             seg_index = playlist.media_sequence
+
+        elif line.startswith("#EXT-X-DISCONTINUITY-SEQ:"):
+            # 不连续序列号（通常可忽略，仅记录）
+            pass
+
+        elif line.startswith("#EXT-X-DISCONTINUITY"):
+            # 不连续标记：表示后续分片的编码参数、时间戳等可能发生变化
+            playlist.discontinuity_count += 1
+            _logger.info(f"检测到 EXT-X-DISCONTINUITY（第 {playlist.discontinuity_count} 次）")
+
+        elif line.startswith("#EXT-X-ENDLIST"):
+            # VOD 标志：播放列表不会再更新
+            playlist.is_endlist = True
+
+        elif line.startswith("#EXT-X-PROGRAM-DATE-TIME:"):
+            # 绝对时间戳（可选，用于同步，下载时可忽略）
+            pass
 
         elif line.startswith("#EXT-X-MAP:"):
             # fMP4 初始化段（init segment），可出现多次，每次影响后续分片
@@ -295,6 +319,10 @@ def _parse_media(lines: list, base_url: str, playlist: M3U8Playlist):
             current_duration = 0.0
             current_byterange = ""
 
+    # 标记直播流（无 ENDLIST 且非 Master Playlist）
+    if not playlist.is_endlist and not playlist.is_master and playlist.segments:
+        playlist.is_live = True
+
     playlist.encryption_method = enc_method
     playlist.key_url = key_url
     playlist.iv = iv
@@ -338,10 +366,26 @@ def _parse_iv(iv_str: str) -> bytes:
 
     IV 格式: 0x1234567890ABCDEF1234567890ABCDEF
     转换为 16 字节的 bytes 对象
+
+    支持的变体：
+    - 带/不带 0x 前缀
+    - 大小写混合
+    - 带空格
     """
     if not iv_str:
         return b""
-    # 去掉 0x 前缀
+    iv_str = iv_str.strip()
+    # 去掉 0x/0X 前缀
     if iv_str.startswith("0x") or iv_str.startswith("0X"):
         iv_str = iv_str[2:]
-    return bytes.fromhex(iv_str)
+    # 去除空格和冒号分隔符（部分实现用 0x1234:5678:... 格式）
+    iv_str = iv_str.replace(" ", "").replace(":", "")
+    try:
+        result = bytes.fromhex(iv_str)
+        # 补齐到 16 字节（不足时左侧补零）
+        if len(result) < 16:
+            result = b'\x00' * (16 - len(result)) + result
+        return result[:16]
+    except ValueError:
+        logger.warning(f"IV 解析失败: '{iv_str}'，使用空 IV")
+        return b""

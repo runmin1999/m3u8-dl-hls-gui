@@ -88,6 +88,17 @@ def decrypt_segment(
         # HLS 规范：IV 缺失时使用 MEDIA-SEQUENCE 编码为 128-bit big-endian
         iv = media_sequence.to_bytes(16, byteorder='big')
 
+    # 检查数据长度是否为 AES 块大小（16 字节）的倍数
+    if len(encrypted_data) == 0:
+        raise ValueError("加密数据为空")
+    if len(encrypted_data) % 16 != 0:
+        # 部分服务器可能返回不完整数据，尝试截断到最后一个完整块
+        logger.warning(
+            f"加密数据长度 {len(encrypted_data)} 不是 16 的倍数，"
+            f"截断到 {len(encrypted_data) // 16 * 16} 字节"
+        )
+        encrypted_data = encrypted_data[:len(encrypted_data) // 16 * 16]
+
     cipher = AES.new(key, AES.MODE_CBC, iv)
     decrypted = cipher.decrypt(encrypted_data)
 
