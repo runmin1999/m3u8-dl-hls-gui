@@ -1,4 +1,4 @@
-"""m3u8-dl-hls-gui v0.23 - CustomTkinter 桌面应用"""
+"""m3u8-dl-hls-gui v0.24 - CustomTkinter 桌面应用"""
 
 import os
 import sys
@@ -136,6 +136,7 @@ class DownloadTask:
         self._audio_track_url = ""                      # 选中的音频轨道 m3u8 URL
         self.local_m3u8_content = ""                    # 本地 M3U8 文件内容
         self.local_m3u8_base = ""                       # 本地 M3U8 文件目录（用于解析相对路径）
+        self.verification = None                        # ffprobe 验证结果（dict）
 
     @property
     def download_speed(self):
@@ -189,6 +190,7 @@ class DownloadTask:
             "audio_track_url": getattr(self, '_audio_track_url', ""),
             "local_m3u8_content": getattr(self, 'local_m3u8_content', ""),
             "local_m3u8_base": getattr(self, 'local_m3u8_base', ""),
+            "verification": getattr(self, 'verification', None),
         }
 
 
@@ -230,6 +232,7 @@ def _load_tasks():
         task._audio_track_url = item.get("audio_track_url", "")
         task.local_m3u8_content = item.get("local_m3u8_content", "")
         task.local_m3u8_base = item.get("local_m3u8_base", "")
+        task.verification = item.get("verification", None)
         tasks[task.task_id] = task
     return tasks
 
@@ -451,12 +454,25 @@ class TaskCard(ctk.CTkFrame):
             self.speed_label.configure(text=format_speed(t.download_speed))
         else:
             self.speed_label.configure(text="")
-        # 更新操作描述（包含错误信息和输出路径）
+        # 更新操作描述（包含错误信息、输出路径和验证信息）
         action = t.current_action or ""
         if t.error:
             action += f"\n错误: {t.error}"
         if t.output_path:
             action += f"\n{t.output_path}"
+        if t.verification and t.verification.get("verified"):
+            v = t.verification
+            parts = []
+            if v.get("duration"):
+                parts.append(f"时长 {v['duration']}")
+            if v.get("resolution"):
+                parts.append(v["resolution"])
+            if v.get("video_codec"):
+                parts.append(v["video_codec"])
+            if v.get("audio_codec"):
+                parts.append(v["audio_codec"])
+            if parts:
+                action += f"\n验证: {' | '.join(parts)}"
         self.action_label.configure(text=action)
         # 根据状态显示/隐藏控制按钮
         self.btn_resume.pack_forget()
@@ -477,7 +493,7 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self._dnd_available = False
-        self.title("m3u8-dl-hls-gui v0.23")
+        self.title("m3u8-dl-hls-gui v0.24")
         self.geometry("930x620")
         self.minsize(750, 500)
         self.configure(fg_color=COLORS["bg"])

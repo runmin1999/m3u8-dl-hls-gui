@@ -173,6 +173,63 @@ def load_tasks(tasks_file):
     return tasks
 
 
+def verify_media_file(file_path):
+    """
+    用 ffprobe 检查媒体文件完整性，返回验证信息。
+
+    Returns:
+        dict 包含 duration, resolution, video_codec, audio_codec, verified, error
+    """
+    result = {"verified": False, "error": None}
+    try:
+        import shutil
+        ffprobe_path = shutil.which("ffprobe")
+        if not ffprobe_path:
+            result["error"] = "未找到 ffprobe"
+            return result
+
+        cmd = [
+            ffprobe_path, "-v", "quiet",
+            "-print_format", "json",
+            "-show_format", "-show_streams",
+            file_path,
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            result["error"] = "ffprobe 执行失败"
+            return result
+
+        data = json.loads(r.stdout)
+        fmt = data.get("format", {})
+        streams = data.get("streams", [])
+
+        # 时长
+        duration_sec = float(fmt.get("duration", 0))
+        if duration_sec > 0:
+            h = int(duration_sec // 3600)
+            m = int((duration_sec % 3600) // 60)
+            s = int(duration_sec % 60)
+            result["duration"] = f"{h:02d}:{m:02d}:{s:02d}" if h > 0 else f"{m:02d}:{s:02d}"
+
+        # 遍历流
+        for s in streams:
+            codec_type = s.get("codec_type")
+            if codec_type == "video" and "video_codec" not in result:
+                result["video_codec"] = s.get("codec_name", "unknown").upper()
+                w, h = s.get("width"), s.get("height")
+                if w and h:
+                    result["resolution"] = f"{w}x{h}"
+            elif codec_type == "audio" and "audio_codec" not in result:
+                result["audio_codec"] = s.get("codec_name", "unknown").upper()
+
+        result["verified"] = True
+    except FileNotFoundError:
+        result["error"] = "未找到 ffprobe"
+    except Exception as e:
+        result["error"] = str(e)
+    return result
+
+
 def check_mp4_moov_position(file_path):
     """
     检测 MP4 文件的 MOOV atom 是否在文件头部。

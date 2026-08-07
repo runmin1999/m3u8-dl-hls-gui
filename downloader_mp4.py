@@ -251,6 +251,14 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
             # 下载完成判断
             if _is_download_complete(return_code, final_size, total_size):
                 os.replace(tmp_path, output_path)
+
+                # 文件完整性验证
+                from utils import verify_media_file
+                task.current_action = "验证文件..."
+                if on_progress:
+                    on_progress(task)
+                task.verification = verify_media_file(output_path)
+
                 task.status = "completed"
                 task.progress = 100
                 task.current_action = "完成"

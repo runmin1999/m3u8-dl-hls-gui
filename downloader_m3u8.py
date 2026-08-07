@@ -369,6 +369,13 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
             if file_size < min_expected:
                 logger.warning(f"输出文件偏小: {file_size} 字节，预期至少 {min_expected:.0f} 字节")
 
+        # 文件完整性验证
+        from utils import verify_media_file
+        task.current_action = "验证文件..."
+        if on_progress:
+            on_progress(task)
+        task.verification = verify_media_file(final_path)
+
         task.current_action = f"合并完成 ({file_size / (1024*1024):.1f} MB)"
         if on_progress:
             on_progress(task)

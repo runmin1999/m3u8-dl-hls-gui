@@ -25,6 +25,7 @@
 | **Resume Support** | M3U8: atomic writes + segment index tracking; MP4: HTTP Range headers |
 | **Resolution Selection** | Per-task dropdown; auto-selects highest bitrate by default |
 | **Real-time Progress** | Progress bar, segment counter, and live download speed |
+| **File Integrity Check** | ffprobe verifies duration, resolution, video/audio codec after download |
 | **Fast Controls** | Responsive pause/resume/stop; Delete with background cleanup |
 | **Clipboard Auto-detect** | Auto-fills URL from clipboard when URL field is empty |
 | **Smart Paste** | Ctrl+V detects M3U8/MP4 links and fills URL field automatically |
@@ -176,6 +177,11 @@ m3u8-dl-hls-gui/
 
 ## Changelog
 
+### v0.24
+
+- ✨ **File integrity verification** — ffprobe checks duration, resolution, video/audio codec after download; results shown in task card
+- ✨ **GitHub Actions auto-build** — Push a `v*` tag to trigger Windows exe build + Release with SHA256 checksum
+
 ### v0.23
 
 - 🐛 Fix AES-128 implicit IV using wrong segment sequence number
@@ -194,13 +200,6 @@ m3u8-dl-hls-gui/
 - 🐛 **Fix context menu** — Right-click menu now closes on focus loss and clicking outside
 - ✨ **Local M3U8 support** — Ctrl+V a local `.m3u8` file path to download its segments directly
 - 🐛 **Fix FFmpeg encoding** — Fixed `UnicodeDecodeError` on Chinese Windows (GBK vs UTF-8)
-
-### v0.19
-
-- 🔧 **Architecture refactor** — Download logic separated from GUI into dedicated modules (`downloader_mp4.py`, `downloader_m3u8.py`)
-- 🔧 **Unified task execution** — MP4 and M3U8 downloads share a common task lifecycle manager (`task_runner.py`)
-- 🔧 **Enhanced FFmpeg detection** — Checks common install paths on Windows, not just PATH
-- 🔧 **Version consistency** — Fixed version string mismatch across the codebase
 
 ## Acknowledgments
 
