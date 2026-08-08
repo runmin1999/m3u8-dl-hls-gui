@@ -906,6 +906,9 @@ class App(ctk.CTk):
         _save_tasks(self.tasks)
         self._refresh_task_list()
         self._download_btn.configure(state="normal")
+        # 立即启动下载
+        resolution = task.resolution if task.resolution else "最高分辨率"
+        start_download(task, self.tasks, on_progress=lambda t: None, resolution=resolution)
 
     def _get_max_concurrent(self):
         """获取最大并行下载数（隐藏配置项）"""

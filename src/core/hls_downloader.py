@@ -198,9 +198,25 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
         dl_id = task._dl_id
 
         def stop_check():
+            if task._pause_flag:
+                task.status = "paused"
+                task.current_action = "暂停中..."
+                if on_progress:
+                    on_progress(task)
             while task._pause_flag and not task._stop_flag:
                 time.sleep(0.1)
-            return task._stop_flag or task._dl_id != dl_id
+            if task._stop_flag or task._dl_id != dl_id:
+                task.status = "stopped"
+                task.current_action = "已停止"
+                if on_progress:
+                    on_progress(task)
+                return True
+            if task.status == "paused":
+                task.status = "downloading"
+                task.current_action = "续传中..."
+                if on_progress:
+                    on_progress(task)
+            return False
 
         def progress_callback(completed, total):
             task.downloaded_segments = completed
