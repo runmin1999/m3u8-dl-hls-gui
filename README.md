@@ -179,6 +179,12 @@ m3u8-dl-hls-gui/
 
 ## Changelog
 
+### v0.27
+
+- ✨ **Task queue** — Max concurrent downloads configurable (hidden `max_concurrent`, default 3); queued tasks auto-start when slots open
+- ✨ **Remaining time** — Both M3U8 and MP4 downloads show estimated remaining time (HH:MM:SS)
+- ✨ **Auto-update check** — Optional; enable in config.json with `"auto_update_check": true`
+
 ### v0.26
 
 - ✨ **Batch download** — Import from TXT file or paste multiple links; auto-extract filenames from URLs

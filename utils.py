@@ -230,6 +230,48 @@ def verify_media_file(file_path):
     return result
 
 
+def check_for_update(current_version, timeout=5):
+    """
+    检查 GitHub 最新 Release 版本
+
+    Args:
+        current_version: 当前版本号（如 "v0.26"）
+        timeout: 请求超时秒数
+
+    Returns:
+        dict: {"has_update": bool, "latest": str, "url": str} 或 None（检查失败）
+    """
+    try:
+        repo = "runmin1999/m3u8-dl-hls-gui"
+        api_url = f"https://api.github.com/repos/{repo}/releases/latest"
+        resp = requests.get(api_url, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+        latest_tag = data.get("tag_name", "")
+        release_url = data.get("html_url", "")
+        if not latest_tag:
+            return None
+        # 简单版本比较：去掉 v 前缀后按数字比较
+        def _parse_ver(tag):
+            tag = tag.lstrip("v")
+            parts = []
+            for p in tag.split("."):
+                try:
+                    parts.append(int(p))
+                except ValueError:
+                    parts.append(0)
+            return parts
+        cur = _parse_ver(current_version)
+        lat = _parse_ver(latest_tag)
+        return {
+            "has_update": lat > cur,
+            "latest": latest_tag,
+            "url": release_url,
+        }
+    except Exception:
+        return None
+
+
 def check_mp4_moov_position(file_path):
     """
     检测 MP4 文件的 MOOV atom 是否在文件头部。

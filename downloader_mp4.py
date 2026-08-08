@@ -221,6 +221,12 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
                     time_in = sum(s[1] for s in recent)
                     if time_in > 0:
                         task._download_speed = int(bytes_in / time_in)
+                        # 计算剩余时间
+                        if total_size > 0 and downloaded > 0:
+                            remaining_bytes = total_size - downloaded
+                            task._remaining_seconds = int(remaining_bytes / task._download_speed) if task._download_speed > 0 else 0
+                        else:
+                            task._remaining_seconds = 0
 
                 if on_progress:
                     on_progress(task)
@@ -264,6 +270,7 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
                 task.current_action = "完成"
                 task.output_path = output_path
                 task._mp4_downloaded = 0
+                task._remaining_seconds = 0
                 task.finished_at = datetime.now().isoformat()
                 if on_progress:
                     on_progress(task)

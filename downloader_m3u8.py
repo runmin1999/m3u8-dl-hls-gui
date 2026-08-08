@@ -221,6 +221,14 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
                 elapsed = (datetime.now() - task.started_at).total_seconds()
                 if elapsed > 0:
                     task._download_speed = int(bytes_downloaded / elapsed)
+                    # 计算剩余时间
+                    total = task.total_segments
+                    if completed > 0 and total > completed:
+                        remaining_segs = total - completed
+                        avg_time_per_seg = elapsed / completed
+                        task._remaining_seconds = int(remaining_segs * avg_time_per_seg)
+                    else:
+                        task._remaining_seconds = 0
             if on_progress:
                 on_progress(task)
 

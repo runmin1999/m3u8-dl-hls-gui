@@ -1,4 +1,4 @@
-"""m3u8-dl-hls-gui v0.26 - CustomTkinter 桌面应用"""
+"""m3u8-dl-hls-gui v0.27 - CustomTkinter 桌面应用"""
 
 import os
 import sys
@@ -129,6 +129,7 @@ class DownloadTask:
         self._downloaded_indices = set()                # 已下载分片索引集合（用于 M3U8 断点续传）
         self._mp4_downloaded = 0                        # MP4 已下载字节数（用于 MP4 断点续传）
         self._download_speed = 0                        # 下载速度（字节/秒）
+        self._remaining_seconds = 0                     # 预估剩余秒数
         self._dl_id = 0                                 # 下载会话 ID（用于区分新旧线程）
         self.available_resolutions = ["最高分辨率"]     # 可用分辨率列表
         self.audio_track = ""                           # 选择的音频轨道名称
@@ -449,9 +450,15 @@ class TaskCard(ctk.CTkFrame):
         self.progressbar.set(t.progress / 100)
         self.percent_label.configure(text=f"{t.progress}%")
         self.segments_label.configure(text=f"{t.downloaded_segments} / {t.total_segments} 分片")
-        # 更新下载速度（仅下载中显示）
+        # 更新下载速度和剩余时间（仅下载中显示）
         if t.status == "downloading" and t.download_speed > 0:
-            self.speed_label.configure(text=format_speed(t.download_speed))
+            speed_text = format_speed(t.download_speed)
+            remaining = getattr(t, '_remaining_seconds', 0)
+            if remaining > 0:
+                rm, rs = divmod(remaining, 60)
+                rh, rm = divmod(rm, 60)
+                speed_text += f"  剩余 {rh:02d}:{rm:02d}:{rs:02d}" if rh > 0 else f"  剩余 {rm:02d}:{rs:02d}"
+            self.speed_label.configure(text=speed_text)
         else:
             self.speed_label.configure(text="")
         # 更新操作描述（包含错误信息、输出路径和验证信息）
@@ -493,7 +500,7 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self._dnd_available = False
-        self.title("m3u8-dl-hls-gui v0.26")
+        self.title("m3u8-dl-hls-gui v0.27")
         self.geometry("930x620")
         self.minsize(750, 500)
         self.configure(fg_color=COLORS["bg"])
@@ -503,12 +510,15 @@ class App(ctk.CTk):
         self.task_cards = {}                  # task_id → TaskCard 映射
         self._active_context_menu = None      # 当前打开的右键菜单 (menu, owner_card)
         self._dismiss_pending = None           # 延迟关闭的 after ID
+        self._queue_timer = None              # 队列调度定时器
 
         self._build_ui()
         self._refresh_task_list()
         self._poll_progress()  # 启动定时刷新
         self._start_clipboard_monitor()  # 启动剪贴板监控
         self._setup_drop()  # 启用拖拽
+        self._schedule_queue()  # 启动任务队列调度
+        self._check_update()  # 启动时检查更新
         # 全局点击/失焦监听：关闭右键菜单
         self.bind("<Button-1>", self._dismiss_context_menu)
         self.bind("<FocusOut>", self._dismiss_context_menu)
@@ -977,11 +987,40 @@ class App(ctk.CTk):
         self._refresh_task_list()
         self._download_btn.configure(state="normal")
 
+    def _get_max_concurrent(self):
+        """获取最大并行下载数（隐藏配置项）"""
+        return max(1, min(10, self.config_data.get("max_concurrent", 3)))
+
+    def _count_running(self):
+        """统计当前正在下载的任务数"""
+        return sum(1 for t in self.tasks.values() if t.status == "downloading")
+
     def _start_all(self):
-        """开始所有待处理/已停止/已暂停/已失败的任务"""
+        """开始所有待处理/已停止/已暂停/已失败的任务（受并发限制）"""
         for task in self.tasks.values():
             if task.status in ("pending", "stopped", "paused", "failed"):
-                self._resume_task(task.task_id)
+                if self._count_running() < self._get_max_concurrent():
+                    self._resume_task(task.task_id)
+                else:
+                    break  # 达到并发上限，等调度器启动
+        self._schedule_queue()
+
+    def _schedule_queue(self):
+        """定时检查队列，有空位时自动启动等待中的任务"""
+        if self._queue_timer:
+            self.after_cancel(self._queue_timer)
+        max_c = self._get_max_concurrent()
+        running = self._count_running()
+        if running < max_c:
+            # 找到第一个等待中的任务启动
+            for task in self.tasks.values():
+                if task.status in ("pending", "stopped", "paused", "failed"):
+                    if running >= max_c:
+                        break
+                    self._resume_task(task.task_id)
+                    running += 1
+        # 每秒检查一次
+        self._queue_timer = self.after(1000, self._schedule_queue)
 
     def _stop_all(self):
         """停止所有正在下载的任务"""
@@ -1165,6 +1204,39 @@ class App(ctk.CTk):
                              corner_radius=6, padx=12, pady=6)
         toast.place(relx=0.5, rely=0.95, anchor="center")
         self.after(duration, toast.destroy)
+
+    def _check_update(self):
+        """启动时检查 GitHub 最新版本（仅当 config.json 中 auto_update_check 为 true 时执行）"""
+        if not self.config_data.get("auto_update_check", False):
+            return
+        current = "v0.27"
+        def do_check():
+            from utils import check_for_update
+            result = check_for_update(current, timeout=5)
+            if result and result.get("has_update"):
+                latest = result["latest"]
+                url = result["url"]
+                self.after(0, lambda: self._show_update_dialog(latest, url))
+        threading.Thread(target=do_check, daemon=True).start()
+
+    def _show_update_dialog(self, latest, url):
+        """显示更新提示对话框"""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("发现新版本")
+        dialog.geometry("380x180")
+        dialog.configure(fg_color=COLORS["bg"])
+        dialog.transient(self)
+        dialog.grab_set()
+        ctk.CTkLabel(dialog, text=f"发现新版本 {latest}", font=("", 14, "bold"), text_color=COLORS["success"]).pack(padx=20, pady=(20, 8))
+        ctk.CTkLabel(dialog, text="前往 GitHub 下载最新版本？", font=("", 12), text_color=COLORS["text2"]).pack(padx=20, pady=(0, 16))
+        def open_url():
+            import webbrowser
+            webbrowser.open(url)
+            dialog.destroy()
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=(0, 16))
+        ctk.CTkButton(btn_frame, text="前往下载", height=34, font=("", 12, "bold"), corner_radius=6, fg_color=COLORS["grad1"], hover_color=COLORS["grad2"], command=open_url).pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(btn_frame, text="稍后", width=60, height=34, font=("", 11), corner_radius=6, fg_color=COLORS["border"], command=dialog.destroy).pack(side="left", padx=(8, 0))
 
     def _dismiss_context_menu(self, event=None):
         """关闭当前打开的右键菜单（延迟50ms，避免按钮命令被中断）"""
