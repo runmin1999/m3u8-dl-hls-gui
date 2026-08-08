@@ -58,6 +58,7 @@ class TestBuildCurlCmd(unittest.TestCase):
         cmd = _build_curl_cmd(task, "/tmp/out.mp4", "curl")
         cmd_str = " ".join(cmd)
         self.assertIn("--parallel", cmd_str)
+        self.assertIn("--parallel-max", cmd_str)
         self.assertIn("--parallel-immediate", cmd_str)
 
     def test_has_sS_and_fail(self):
