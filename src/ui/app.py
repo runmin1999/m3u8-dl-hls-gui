@@ -1163,8 +1163,7 @@ class App(ctk.CTk):
 
         vars_dict = {}
         for key, label, default, desc in settings:
-            ctk.CTkLabel(scroll, text=label, font=("", 11, "bold"), text_color=COLORS["text"], anchor="w").pack(fill="x", padx=12, pady=(8, 2))
-            ctk.CTkLabel(scroll, text=desc, font=("", 10), text_color=COLORS["muted"], anchor="w").pack(fill="x", padx=12, pady=(0, 4))
+            ctk.CTkLabel(scroll, text=f"{label}（{desc}）", font=("", 11), text_color=COLORS["text2"], anchor="w").pack(fill="x", padx=12, pady=(8, 2))
             current_val = str(self.config_data.get(key, default))
             var = ctk.StringVar(value=current_val)
             vars_dict[key] = var
