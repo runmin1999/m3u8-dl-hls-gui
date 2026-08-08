@@ -1129,7 +1129,7 @@ class App(ctk.CTk):
         """显示设置对话框（所有配置项）"""
         dialog = ctk.CTkToplevel(self)
         dialog.title("设置")
-        dialog.geometry("360x320")
+        dialog.geometry("360x430")
         dialog.configure(fg_color=COLORS["bg"])
         dialog.transient(self)
         dialog.grab_set()
