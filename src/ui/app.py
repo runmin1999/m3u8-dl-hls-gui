@@ -1129,7 +1129,7 @@ class App(ctk.CTk):
         """显示设置对话框（所有配置项）"""
         dialog = ctk.CTkToplevel(self)
         dialog.title("设置")
-        dialog.geometry("420x480")
+        dialog.geometry("360x320")
         dialog.configure(fg_color=COLORS["bg"])
         dialog.transient(self)
         dialog.grab_set()
@@ -1151,35 +1151,39 @@ class App(ctk.CTk):
             except Exception:
                 pass
 
-        ctk.CTkLabel(dialog, text="高级设置", font=("", 14, "bold"), text_color=COLORS["text"]).pack(padx=20, pady=(16, 12))
-
-        scroll = ctk.CTkScrollableFrame(dialog, fg_color=COLORS["card"], corner_radius=8)
-        scroll.pack(fill="both", expand=True, padx=20, pady=(0, 12))
-
         lk = {"font": ("", 11), "text_color": COLORS["text2"]}
-        ek = {"height": 30, "font": ("Consolas", 11), "fg_color": COLORS["input"], "border_color": COLORS["border"], "text_color": COLORS["text"], "corner_radius": 6}
+        ek = {"height": 34, "font": ("Consolas", 11), "fg_color": COLORS["input"], "border_color": COLORS["border"], "text_color": COLORS["text"], "corner_radius": 6}
 
-        # 配置项定义：(key, label, default, description)
+        # 标题
+        ctk.CTkLabel(dialog, text="高级设置", font=("", 14, "bold"), text_color=COLORS["text"]).pack(padx=20, pady=(16, 8))
+
+        # 单个卡片（与下载设置一致）
+        card = ctk.CTkFrame(dialog, fg_color=COLORS["card"], corner_radius=12, border_width=1, border_color=COLORS["border"])
+        card.pack(fill="x", padx=20, pady=(0, 12))
+
+        form = ctk.CTkFrame(card, fg_color="transparent")
+        form.pack(fill="x", padx=20, pady=(12, 12))
+
         settings = [
             ("max_concurrent", "最大并行下载数", "3", "同时下载的任务上限（1-10）"),
-            ("parallel_max", "MP4 分片并行数", "16", "curl --parallel-max（1-32）"),
+            ("parallel_max", "MP4 分片并行数", "16", "curl 分片并行数（1-32）"),
             ("ffmpeg_concurrency", "FFmpeg 并发数", "2", "同时合并的任务上限（1-16）"),
-            ("auto_update_check", "启动时检查更新", "false", "true/false，检查 GitHub 新版本"),
+            ("auto_update_check", "检查更新", "false", "启动时检查 GitHub 新版本"),
         ]
 
+        r = 0
         vars_dict = {}
         for key, label, default, desc in settings:
-            ctk.CTkLabel(scroll, text=label, font=("", 11, "bold"), text_color=COLORS["text"], anchor="w").pack(fill="x", padx=12, pady=(8, 2))
-            ctk.CTkLabel(scroll, text=desc, font=("", 10), text_color=COLORS["muted"], anchor="w").pack(fill="x", padx=12, pady=(0, 4))
+            ctk.CTkLabel(form, text=f"{label}（{desc}）", **lk).grid(row=r, column=0, columnspan=2, sticky="w", pady=(0, 4)); r += 1
             current_val = str(self.config_data.get(key, default))
             var = ctk.StringVar(value=current_val)
             vars_dict[key] = var
-            ctk.CTkEntry(scroll, textvariable=var, **ek).pack(fill="x", padx=12, pady=(0, 4))
+            ctk.CTkEntry(form, textvariable=var, **ek).grid(row=r, column=0, columnspan=2, sticky="ew", pady=(0, 8)); r += 1
+        form.columnconfigure(0, weight=1)
 
         def save_settings():
             for key, var in vars_dict.items():
                 val = var.get().strip()
-                # 尝试解析为数字
                 try:
                     val = int(val)
                 except ValueError:
@@ -1192,9 +1196,10 @@ class App(ctk.CTk):
             self._show_toast("设置已保存")
             dialog.destroy()
 
+        # 底部按钮（与下载设置一致）
         btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_frame.pack(fill="x", padx=20, pady=(0, 16))
-        ctk.CTkButton(btn_frame, text="恢复默认", width=80, height=34, font=("", 11), corner_radius=6, fg_color=COLORS["border"], text_color=COLORS["warning"], command=lambda: self._reset_settings(vars_dict)).pack(side="left")
+        ctk.CTkButton(btn_frame, text="恢复默认", width=80, height=34, font=("", 11), corner_radius=6, fg_color=COLORS["border"], text_color=COLORS["warning"], hover_color="#3d2a0a", command=lambda: self._reset_settings(vars_dict)).pack(side="left")
         ctk.CTkButton(btn_frame, text="保存", height=34, font=("", 12, "bold"), corner_radius=6, fg_color=COLORS["grad1"], hover_color=COLORS["grad2"], command=save_settings).pack(side="right")
 
     def _reset_settings(self, vars_dict):
