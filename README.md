@@ -179,6 +179,11 @@ m3u8-dl-hls-gui/
 
 ## Changelog
 
+### v0.28
+
+- 🔧 **Project restructure** — Code split into `src/models`, `src/core`, `src/ui`, `src/services`, `src/utils` modules
+- 🔧 **Config completeness** — Added `max_concurrent` and `auto_update_check` to `config.json`
+
 ### v0.27
 
 - ✨ **Task queue** — Max concurrent downloads configurable (hidden `max_concurrent`, default 3); queued tasks auto-start when slots open

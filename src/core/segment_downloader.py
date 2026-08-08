@@ -10,7 +10,7 @@ from typing import List, Optional, Callable
 import requests
 from requests.adapters import HTTPAdapter
 
-from m3u8_parser import Segment
+from src.core.hls_parser import Segment
 
 logger = logging.getLogger(__name__)
 

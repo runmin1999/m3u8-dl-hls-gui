@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from m3u8_parser import Segment
-from downloader import _build_result_list
+from src.core.hls_parser import Segment
+from src.core.segment_downloader import _build_result_list
 
 
 class TestBuildResultList(unittest.TestCase):

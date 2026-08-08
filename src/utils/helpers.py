@@ -1,12 +1,15 @@
-"""工具函数模块：M3U8获取、配置管理、任务持久化"""
+"""通用工具函数：基础目录、URL处理、格式化、配置管理、任务持久化"""
 
 import os
+import sys
 import json
 import time
 import ssl
 import logging
 import subprocess
 import threading
+from datetime import datetime
+
 import requests
 
 logger = logging.getLogger(__name__)
@@ -17,13 +20,12 @@ _json_write_lock = threading.Lock()
 
 def get_base_dir():
     """获取应用基础目录，兼容 PyInstaller 打包"""
-    import sys
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
 
-# 任务历史文件路径（供 app.py 和 downloader 模块共同使用）
+# 任务历史文件路径
 BASE_DIR = get_base_dir()
 TASKS_HISTORY_FILE = os.path.join(BASE_DIR, "tasks_history.json")
 
@@ -51,8 +53,10 @@ def _atomic_write_json(path, data):
 
 def fetch_m3u8(url, headers=None, proxy=""):
     """获取 m3u8 文件内容，带重试和SSL错误处理"""
+    from urllib.parse import urljoin as _urljoin
     req_headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
         **(headers or {})
     }
     proxies = {"http": proxy, "https": proxy} if proxy else None
@@ -105,15 +109,23 @@ def format_speed(bps):
     return f"速度: {bps} B/s"
 
 
+def format_size(n):
+    """格式化文件大小"""
+    if n < 1024:
+        return f"{n}B"
+    elif n < 1024 * 1024:
+        return f"{n/1024:.0f}KB"
+    elif n < 1024 * 1024 * 1024:
+        return f"{n/1024/1024:.1f}MB"
+    else:
+        return f"{n/1024/1024/1024:.2f}GB"
+
+
 def check_ffmpeg():
     """检查 FFmpeg 是否可用，支持常见安装路径"""
     import shutil
-
-    # 方法1: PATH 中查找
     if shutil.which("ffmpeg"):
         return True
-
-    # 方法2: 常见安装路径（Windows）
     common_paths = [
         os.path.join(os.environ.get("LOCALAPPDATA", ""), "ffmpeg", "bin", "ffmpeg.exe"),
         os.path.join(os.environ.get("PROGRAMFILES", ""), "ffmpeg", "bin", "ffmpeg.exe"),
@@ -126,8 +138,48 @@ def check_ffmpeg():
             if bin_dir not in os.environ.get("PATH", ""):
                 os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
             return True
-
     return False
+
+
+def verify_media_file(file_path):
+    """用 ffprobe 检查媒体文件完整性，返回验证信息"""
+    result = {"verified": False, "error": None}
+    try:
+        import shutil as _shutil
+        ffprobe_path = _shutil.which("ffprobe")
+        if not ffprobe_path:
+            result["error"] = "未找到 ffprobe"
+            return result
+        cmd = [ffprobe_path, "-v", "quiet", "-print_format", "json",
+               "-show_format", "-show_streams", file_path]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            result["error"] = "ffprobe 执行失败"
+            return result
+        data = json.loads(r.stdout)
+        fmt = data.get("format", {})
+        streams = data.get("streams", [])
+        duration_sec = float(fmt.get("duration", 0))
+        if duration_sec > 0:
+            h = int(duration_sec // 3600)
+            m = int((duration_sec % 3600) // 60)
+            s = int(duration_sec % 60)
+            result["duration"] = f"{h:02d}:{m:02d}:{s:02d}" if h > 0 else f"{m:02d}:{s:02d}"
+        for s in streams:
+            codec_type = s.get("codec_type")
+            if codec_type == "video" and "video_codec" not in result:
+                result["video_codec"] = s.get("codec_name", "unknown").upper()
+                w, h = s.get("width"), s.get("height")
+                if w and h:
+                    result["resolution"] = f"{w}x{h}"
+            elif codec_type == "audio" and "audio_codec" not in result:
+                result["audio_codec"] = s.get("codec_name", "unknown").upper()
+        result["verified"] = True
+    except FileNotFoundError:
+        result["error"] = "未找到 ffprobe"
+    except Exception as e:
+        result["error"] = str(e)
+    return result
 
 
 def load_config(config_file):
@@ -167,80 +219,14 @@ def load_tasks(tasks_file):
     try:
         with open(tasks_file, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return data  # 返回原始数据，由调用者构建 DownloadTask
+        return data
     except Exception as e:
         logger.warning(f"加载任务失败: {e}")
     return tasks
 
 
-def verify_media_file(file_path):
-    """
-    用 ffprobe 检查媒体文件完整性，返回验证信息。
-
-    Returns:
-        dict 包含 duration, resolution, video_codec, audio_codec, verified, error
-    """
-    result = {"verified": False, "error": None}
-    try:
-        import shutil
-        ffprobe_path = shutil.which("ffprobe")
-        if not ffprobe_path:
-            result["error"] = "未找到 ffprobe"
-            return result
-
-        cmd = [
-            ffprobe_path, "-v", "quiet",
-            "-print_format", "json",
-            "-show_format", "-show_streams",
-            file_path,
-        ]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        if r.returncode != 0:
-            result["error"] = "ffprobe 执行失败"
-            return result
-
-        data = json.loads(r.stdout)
-        fmt = data.get("format", {})
-        streams = data.get("streams", [])
-
-        # 时长
-        duration_sec = float(fmt.get("duration", 0))
-        if duration_sec > 0:
-            h = int(duration_sec // 3600)
-            m = int((duration_sec % 3600) // 60)
-            s = int(duration_sec % 60)
-            result["duration"] = f"{h:02d}:{m:02d}:{s:02d}" if h > 0 else f"{m:02d}:{s:02d}"
-
-        # 遍历流
-        for s in streams:
-            codec_type = s.get("codec_type")
-            if codec_type == "video" and "video_codec" not in result:
-                result["video_codec"] = s.get("codec_name", "unknown").upper()
-                w, h = s.get("width"), s.get("height")
-                if w and h:
-                    result["resolution"] = f"{w}x{h}"
-            elif codec_type == "audio" and "audio_codec" not in result:
-                result["audio_codec"] = s.get("codec_name", "unknown").upper()
-
-        result["verified"] = True
-    except FileNotFoundError:
-        result["error"] = "未找到 ffprobe"
-    except Exception as e:
-        result["error"] = str(e)
-    return result
-
-
 def check_for_update(current_version, timeout=5):
-    """
-    检查 GitHub 最新 Release 版本
-
-    Args:
-        current_version: 当前版本号（如 "v0.26"）
-        timeout: 请求超时秒数
-
-    Returns:
-        dict: {"has_update": bool, "latest": str, "url": str} 或 None（检查失败）
-    """
+    """检查 GitHub 最新 Release 版本"""
     try:
         repo = "runmin1999/m3u8-dl-hls-gui"
         api_url = f"https://api.github.com/repos/{repo}/releases/latest"
@@ -251,7 +237,6 @@ def check_for_update(current_version, timeout=5):
         release_url = data.get("html_url", "")
         if not latest_tag:
             return None
-        # 简单版本比较：去掉 v 前缀后按数字比较
         def _parse_ver(tag):
             tag = tag.lstrip("v")
             parts = []
@@ -263,71 +248,6 @@ def check_for_update(current_version, timeout=5):
             return parts
         cur = _parse_ver(current_version)
         lat = _parse_ver(latest_tag)
-        return {
-            "has_update": lat > cur,
-            "latest": latest_tag,
-            "url": release_url,
-        }
+        return {"has_update": lat > cur, "latest": latest_tag, "url": release_url}
     except Exception:
         return None
-
-
-def check_mp4_moov_position(file_path):
-    """
-    检测 MP4 文件的 MOOV atom 是否在文件头部。
-
-    MP4 文件由一个个 box 组成，每个 box 格式：[4字节大小][4字节类型]
-    常见顶层 box：ftyp, moov, mdat, free, widev
-
-    返回: "faststart" (MOOV在前，正常) / "normal" (MOOV在后，播放可能卡死) / "corrupt" (文件无MOOV，损坏) / "unknown"
-    """
-    try:
-        file_size = os.path.getsize(file_path)
-        if file_size < 8:
-            return "corrupt"
-
-        with open(file_path, "rb") as f:
-            # 读取头部用于 box 解析
-            header = f.read(min(2048, file_size))
-
-            # 首先在头部查找 moov
-            pos = 0
-            header_boxes = []
-            moov_in_header = False
-            mdat_in_header = False
-            while pos + 8 <= len(header):
-                box_size = int.from_bytes(header[pos:pos+4], 'big')
-                box_type = header[pos+4:pos+8].decode('ascii', errors='ignore')
-
-                if box_size < 8:
-                    break
-
-                header_boxes.append(box_type)
-                if box_type == "moov":
-                    moov_in_header = True
-                if box_type == "mdat":
-                    mdat_in_header = True
-
-                pos += box_size
-
-            if moov_in_header:
-                return "faststart"
-
-            # 头部没有 moov，检查文件尾部是否有 moov
-            # 读取文件最后 4096 字节搜索 moov box
-            tail_size = min(4096, file_size)
-            f.seek(max(0, file_size - tail_size))
-            tail = f.read()
-
-            # 在尾部搜索 "moov" 字符串（简单启发式）
-            tail_text = tail.decode('ascii', errors='ignore')
-            if "moov" in tail_text:
-                return "normal"
-
-            # 头部有 mdat 但整个文件都没有 moov → 文件损坏/不完整
-            if mdat_in_header or len(header_boxes) > 0:
-                return "corrupt"
-
-            return "unknown"
-    except Exception:
-        return "unknown"

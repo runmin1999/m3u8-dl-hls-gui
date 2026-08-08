@@ -7,7 +7,7 @@ import shutil
 import hashlib
 import logging
 from datetime import datetime
-from utils import save_tasks, TASKS_HISTORY_FILE
+from src.utils.helpers import save_tasks, TASKS_HISTORY_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +26,10 @@ def _download_audio_track(
     Returns:
         合并后的音频文件路径
     """
-    from utils import fetch_m3u8
-    from m3u8_parser import parse_m3u8
-    from downloader import download_all
-    from decryptor import decrypt_files
+    from src.utils.helpers import fetch_m3u8
+    from src.core.hls_parser import parse_m3u8
+    from src.core.segment_downloader import download_all
+    from src.core.decryptor import decrypt_files
 
     audio_content = fetch_m3u8(audio_url, headers=headers, proxy=proxy)
     audio_playlist = parse_m3u8(audio_content, audio_url)
@@ -58,7 +58,7 @@ def _download_audio_track(
         )
 
     audio_output = os.path.join(temp_dir, "audio_merged.mp4")
-    from merger import merge_ts_files
+    from src.core.merger import merge_ts_files
     if not merge_ts_files(audio_files, audio_output):
         raise Exception("音频合并失败")
 
@@ -70,17 +70,17 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
     执行下载任务的主流程（在子线程中运行）
     自动检测 MP4/M3U8 格式，调用对应下载函数
     """
-    from utils import fetch_m3u8, get_base_url, check_ffmpeg
-    from m3u8_parser import parse_m3u8
-    from downloader import download_all, download_init_segment, _create_session
-    from decryptor import decrypt_files
-    from merger import merge_to_ts, merge_fmp4, mux_audio_video
+    from src.utils.helpers import fetch_m3u8, get_base_url, check_ffmpeg
+    from src.core.hls_parser import parse_m3u8
+    from src.core.segment_downloader import download_all, download_init_segment, _create_session
+    from src.core.decryptor import decrypt_files
+    from src.core.merger import merge_to_ts, merge_fmp4, mux_audio_video
 
     # 检测是否为 MP4 链接（仅当 URL 路径以 .mp4 结尾，排除路径中间含 .mp4 的 M3U8）
     from urllib.parse import urlparse
     _parsed = urlparse(task.url)
     if _parsed.path.rstrip('/').lower().endswith('.mp4'):
-        from downloader_mp4 import run_download_mp4
+        from src.core.mp4_downloader import run_download_mp4
         run_download_mp4(task, tasks_dict, on_progress)
         return
 
@@ -384,7 +384,7 @@ def run_download(task, tasks_dict, on_progress=None, resolution="最高分辨率
                 logger.warning(f"输出文件偏小: {file_size} 字节，预期至少 {min_expected:.0f} 字节")
 
         # 文件完整性验证
-        from utils import verify_media_file
+        from src.utils.helpers import verify_media_file
         task.current_action = "验证文件..."
         if on_progress:
             on_progress(task)

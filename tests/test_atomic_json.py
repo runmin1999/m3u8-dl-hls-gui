@@ -7,7 +7,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from utils import _atomic_write_json, save_config, save_tasks, load_config
+from src.utils.helpers import _atomic_write_json, save_config, save_tasks, load_config
 
 
 class TestAtomicWriteJson(unittest.TestCase):
@@ -70,7 +70,7 @@ class TestAtomicWriteJson(unittest.TestCase):
             self.assertEqual(old_data, {"version": 1})
 
             # mock os.replace 让它失败
-            with patch('utils.os.replace', side_effect=OSError("disk full")):
+            with patch('src.utils.helpers.os.replace', side_effect=OSError("disk full")):
                 with self.assertRaises(OSError):
                     _atomic_write_json(path, {"version": 2})
 

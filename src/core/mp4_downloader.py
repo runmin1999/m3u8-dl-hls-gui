@@ -8,7 +8,7 @@ import logging
 import subprocess
 import threading
 from datetime import datetime
-from utils import save_tasks, TASKS_HISTORY_FILE
+from src.utils.helpers import save_tasks, TASKS_HISTORY_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ def _get_file_size(path):
 def _get_parallel_max(fallback=8):
     """从 config.json 读取 parallel_max，范围 1-32"""
     try:
-        from utils import load_config, get_base_dir
+        from src.utils.helpers import load_config, get_base_dir
         config_file = os.path.join(get_base_dir(), "config.json")
         config = load_config(config_file)
         return max(1, min(32, config.get("parallel_max", fallback)))
@@ -259,7 +259,7 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
                 os.replace(tmp_path, output_path)
 
                 # 文件完整性验证
-                from utils import verify_media_file
+                from src.utils.helpers import verify_media_file
                 task.current_action = "验证文件..."
                 if on_progress:
                     on_progress(task)

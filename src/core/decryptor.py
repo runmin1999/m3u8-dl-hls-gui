@@ -8,7 +8,7 @@ from typing import List, Optional
 import requests
 from Crypto.Cipher import AES
 
-from m3u8_parser import Segment
+from src.core.hls_parser import Segment
 
 logger = logging.getLogger(__name__)
 
