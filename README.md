@@ -18,6 +18,8 @@
 | Feature | Description |
 |---------|-------------|
 | **M3U8 Parsing** | Supports Master Playlist (multi-bitrate) and Media Playlist; auto-resolves relative URLs |
+| **Pre-download Analysis** | Parse M3U8 to show resolution, bitrate, duration, segment count, encryption status |
+| **Batch Download** | Import from TXT file or paste multiple links; create multiple tasks at once |
 | **MP4 Direct Download** | curl-based direct download with retry and resume support |
 | **Auto Format Detection** | Automatically detects M3U8/MP4 URLs |
 | **Multi-threaded Download** | Connection-pool-based engine, 1-100 configurable workers (default 20) |
@@ -176,6 +178,11 @@ m3u8-dl-hls-gui/
 ```
 
 ## Changelog
+
+### v0.26
+
+- ✨ **Batch download** — Import from TXT file or paste multiple links; auto-extract filenames from URLs
+- ✨ **Pre-download analysis** — Parse M3U8 to show resolution, bitrate, duration, segment count, encryption status
 
 ### v0.25
 

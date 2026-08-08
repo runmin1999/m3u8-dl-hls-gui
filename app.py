@@ -1,4 +1,4 @@
-"""m3u8-dl-hls-gui v0.25 - CustomTkinter 桌面应用"""
+"""m3u8-dl-hls-gui v0.26 - CustomTkinter 桌面应用"""
 
 import os
 import sys
@@ -493,7 +493,7 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self._dnd_available = False
-        self.title("m3u8-dl-hls-gui v0.25")
+        self.title("m3u8-dl-hls-gui v0.26")
         self.geometry("930x620")
         self.minsize(750, 500)
         self.configure(fg_color=COLORS["bg"])
@@ -541,8 +541,11 @@ class App(ctk.CTk):
         r = 0  # 行号计数器
         # 链接地址（支持 M3U8 和 MP4 等格式）
         ctk.CTkLabel(form, text="视频链接地址", **lk).grid(row=r, column=0, columnspan=2, sticky="w", pady=(0, 4)); r += 1
+        url_frame = ctk.CTkFrame(form, fg_color="transparent")
+        url_frame.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         self.url_var = ctk.StringVar()
-        ctk.CTkEntry(form, textvariable=self.url_var, placeholder_text="https://example.com/video.m3u8 / .mp4", **ek).grid(row=r, column=0, columnspan=2, sticky="ew", pady=(0, 8)); r += 1
+        ctk.CTkEntry(url_frame, textvariable=self.url_var, placeholder_text="https://example.com/video.m3u8 / .mp4", **ek).pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(url_frame, text="批量", width=48, height=34, font=("", 11), corner_radius=6, fg_color=COLORS["border"], text_color=COLORS["accent"], command=self._batch_import).pack(side="left", padx=(6, 0)); r += 1
 
         # Referer 来源页（防盗链）
         ctk.CTkLabel(form, text="Referer 来源页（可选）", **lk).grid(row=r, column=0, columnspan=2, sticky="w", pady=(0, 4)); r += 1
@@ -580,11 +583,13 @@ class App(ctk.CTk):
         self.workers_var.trace_add("write", lambda *a: self._auto_save())
         ctk.CTkEntry(form, textvariable=self.workers_var, width=50, **ek).grid(row=r, column=1, sticky="w", padx=(12, 0), pady=(0, 8)); r += 1
 
-        # 开始下载按钮
+        # 开始下载按钮 + 分析按钮
         btn_frame = ctk.CTkFrame(form, fg_color="transparent")
         btn_frame.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(4, 0))
         self._download_btn = ctk.CTkButton(btn_frame, text="开始下载", height=38, font=("", 13, "bold"), corner_radius=8, fg_color=COLORS["grad1"], hover_color=COLORS["grad2"], command=self._start_download)
-        self._download_btn.pack(fill="x")
+        self._download_btn.pack(side="left", fill="x", expand=True)
+        self._analyze_btn = ctk.CTkButton(btn_frame, text="分析", width=60, height=38, font=("", 12), corner_radius=8, fg_color=COLORS["border"], text_color=COLORS["accent"], command=self._analyze_url)
+        self._analyze_btn.pack(side="left", padx=(8, 0))
 
         # 设置两列等宽
         form.columnconfigure(0, weight=1)
@@ -646,6 +651,213 @@ class App(ctk.CTk):
             os.startfile(dir_path)
         else:
             subprocess.Popen(["xdg-open" if sys.platform == "linux" else "open", dir_path])
+
+    def _batch_import(self):
+        """批量导入：支持 TXT 文件导入和手动粘贴多个链接"""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("批量导入")
+        dialog.geometry("520x420")
+        dialog.configure(fg_color=COLORS["bg"])
+        dialog.transient(self)
+        dialog.grab_set()
+
+        ctk.CTkLabel(dialog, text="批量导入链接", font=("", 14, "bold"), text_color=COLORS["text"]).pack(padx=20, pady=(16, 8))
+        ctk.CTkLabel(dialog, text="每行一个链接，支持 M3U8 和 MP4 格式", font=("", 11), text_color=COLORS["text2"]).pack(padx=20, pady=(0, 8))
+
+        text框 = ctk.CTkTextbox(dialog, fg_color=COLORS["input"], text_color=COLORS["text"], font=("Consolas", 11), corner_radius=8, border_width=1, border_color=COLORS["border"])
+        text框.pack(fill="both", expand=True, padx=20, pady=(0, 12))
+
+        def load_txt():
+            path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
+            if path:
+                try:
+                    with open(path, "r", encoding="utf-8", errors="replace") as f:
+                        content = f.read()
+                    text框.delete("1.0", "end")
+                    text框.insert("1.0", content)
+                except Exception as e:
+                    messagebox.showerror("错误", f"读取文件失败: {e}")
+
+        def confirm():
+            raw = text框.get("1.0", "end").strip()
+            if not raw:
+                dialog.destroy()
+                return
+            urls = [line.strip() for line in raw.splitlines() if line.strip() and not line.strip().startswith("#")]
+            if not urls:
+                messagebox.showwarning("提示", "未找到有效链接", parent=dialog)
+                return
+            # 用当前设置批量创建任务
+            referer = self.referer_var.get().strip()
+            output_dir = self.dir_var.get().strip() or get_default_output_dir()
+            try:
+                workers = max(1, min(100, int(self.workers_var.get())))
+            except ValueError:
+                workers = 20
+            added = 0
+            for url in urls:
+                # 跳过已存在的 URL
+                if any(t.url == url for t in self.tasks.values()):
+                    continue
+                # 从 URL 提取文件名
+                from urllib.parse import urlparse
+                parsed = urlparse(url)
+                name_part = os.path.basename(parsed.path) or "output"
+                name_part = os.path.splitext(name_part)[0]
+                for ch in '<>:"/\\|?*\n\r\t':
+                    name_part = name_part.replace(ch, '_')
+                name_part = name_part.strip('. ') or "output"
+                output_name = name_part + ".mp4"
+                task_id = datetime.now().strftime("%Y%m%d%H%M%S%f") + f"_{added}"
+                task = DownloadTask(task_id=task_id, url=url, output_name=output_name, output_dir=output_dir, workers=workers, proxy=self.proxy_var.get().strip(), custom_headers={})
+                task.resolution = "最高分辨率"
+                task.available_resolutions = ["最高分辨率"]
+                task.available_audio_tracks = ["默认"]
+                if referer:
+                    task.custom_headers["Referer"] = referer
+                self.tasks[task_id] = task
+                added += 1
+            _save_tasks(self.tasks)
+            self._refresh_task_list()
+            dialog.destroy()
+            self._show_toast(f"已添加 {added} 个任务")
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=(0, 16))
+        ctk.CTkButton(btn_frame, text="导入 TXT", width=90, height=34, font=("", 11), corner_radius=6, fg_color=COLORS["border"], command=load_txt).pack(side="left")
+        ctk.CTkButton(btn_frame, text="确认添加", height=34, font=("", 12, "bold"), corner_radius=6, fg_color=COLORS["grad1"], hover_color=COLORS["grad2"], command=confirm).pack(side="right")
+
+    def _analyze_url(self):
+        """分析链接：预解析 M3U8 显示清晰度/音轨/预计大小"""
+        url = self.url_var.get().strip()
+        if not url:
+            messagebox.showwarning("警告", "请输入视频链接地址")
+            return
+
+        from urllib.parse import urlparse
+        _parsed = urlparse(url)
+        if _parsed.path.rstrip('/').lower().endswith('.mp4'):
+            messagebox.showinfo("提示", "MP4 直链无需分析，可直接下载")
+            return
+
+        self._analyze_btn.configure(state="disabled", text="分析中...")
+
+        def do_analyze():
+            try:
+                is_local = os.path.isfile(url)
+                if is_local:
+                    with open(url, "r", encoding="utf-8", errors="replace") as f:
+                        content = f.read()
+                    base = get_base_url(url.replace("\\", "/"))
+                else:
+                    headers = {}
+                    referer = self.referer_var.get().strip()
+                    if referer:
+                        headers['Referer'] = referer
+                    content = fetch_m3u8(url, headers, self.proxy_var.get().strip())
+                    base = get_base_url(url)
+                playlist = parse_m3u8(content, base)
+
+                # 如果是 Master Playlist，递归获取子播放列表信息
+                stream_details = []
+                if playlist.is_master and playlist.streams:
+                    for s in playlist.streams:
+                        detail = {"name": s.name, "bandwidth": s.bandwidth, "resolution": s.resolution}
+                        # 尝试获取子播放列表的分片数和时长
+                        try:
+                            sub_url = s.url
+                            if not sub_url.startswith("http"):
+                                from urllib.parse import urljoin
+                                sub_url = urljoin(base, sub_url)
+                            sub_content = fetch_m3u8(sub_url, {}, self.proxy_var.get().strip())
+                            sub_base = get_base_url(sub_url)
+                            sub_playlist = parse_m3u8(sub_content, sub_base)
+                            detail["segments"] = len(sub_playlist.segments)
+                            detail["duration"] = sub_playlist.total_duration
+                            detail["encrypted"] = any(seg.encryption_method for seg in sub_playlist.segments)
+                        except Exception:
+                            detail["segments"] = "?"
+                            detail["duration"] = 0
+                            detail["encrypted"] = False
+                        stream_details.append(detail)
+                else:
+                    # Media Playlist
+                    detail = {
+                        "name": "当前流",
+                        "bandwidth": 0,
+                        "resolution": "",
+                        "segments": len(playlist.segments),
+                        "duration": playlist.total_duration,
+                        "encrypted": any(seg.encryption_method for seg in playlist.segments),
+                    }
+                    stream_details.append(detail)
+
+                self.after(0, lambda: self._show_analyze_result(stream_details, playlist))
+            except Exception as e:
+                self.after(0, lambda: messagebox.showerror("分析失败", str(e)))
+            finally:
+                self.after(0, lambda: self._analyze_btn.configure(state="normal", text="分析"))
+
+        import threading
+        threading.Thread(target=do_analyze, daemon=True).start()
+
+    def _show_analyze_result(self, stream_details, playlist):
+        """显示分析结果对话框"""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("分析结果")
+        dialog.geometry("500x400")
+        dialog.configure(fg_color=COLORS["bg"])
+        dialog.transient(self)
+
+        ctk.CTkLabel(dialog, text="视频分析结果", font=("", 14, "bold"), text_color=COLORS["text"]).pack(padx=20, pady=(16, 8))
+
+        scroll = ctk.CTkScrollableFrame(dialog, fg_color=COLORS["card"], corner_radius=8)
+        scroll.pack(fill="both", expand=True, padx=20, pady=(0, 12))
+
+        for i, d in enumerate(stream_details):
+            card = ctk.CTkFrame(scroll, fg_color=COLORS["input"], corner_radius=8)
+            card.pack(fill="x", pady=(0, 8))
+
+            name = d.get("name", f"流 {i+1}")
+            res = d.get("resolution", "")
+            bw = d.get("bandwidth", 0)
+            segs = d.get("segments", "?")
+            dur = d.get("duration", 0)
+            enc = d.get("encrypted", False)
+
+            # 标题行
+            title = name
+            if res:
+                title += f" ({res})"
+            if bw > 0:
+                mbps = bw / 1000000
+                title += f" - {mbps:.1f} Mbps"
+            ctk.CTkLabel(card, text=title, font=("", 12, "bold"), text_color=COLORS["accent"], anchor="w").pack(fill="x", padx=12, pady=(8, 2))
+
+            # 详情行
+            info_parts = []
+            if dur > 0:
+                h = int(dur // 3600)
+                m = int((dur % 3600) // 60)
+                s = int(dur % 60)
+                info_parts.append(f"时长 {h:02d}:{m:02d}:{s:02d}" if h > 0 else f"时长 {m:02d}:{s:02d}")
+            if segs != "?":
+                info_parts.append(f"{segs} 个分片")
+            if enc:
+                info_parts.append("AES 加密")
+            if info_parts:
+                ctk.CTkLabel(card, text=" | ".join(info_parts), font=("", 11), text_color=COLORS["text2"], anchor="w").pack(fill="x", padx=12, pady=(0, 8))
+
+        # 底部信息
+        total_dur = sum(d.get("duration", 0) for d in stream_details if isinstance(d.get("duration"), (int, float)))
+        if total_dur > 0:
+            h = int(total_dur // 3600)
+            m = int((total_dur % 3600) // 60)
+            s = int(total_dur % 60)
+            dur_str = f"{h:02d}:{m:02d}:{s:02d}" if h > 0 else f"{m:02d}:{s:02d}"
+            ctk.CTkLabel(dialog, text=f"共 {len(stream_details)} 个流 | 总时长 {dur_str}", font=("", 11), text_color=COLORS["text2"]).pack(padx=20, pady=(0, 12))
+
+        ctk.CTkButton(dialog, text="关闭", width=80, height=32, font=("", 11), corner_radius=6, fg_color=COLORS["border"], command=dialog.destroy).pack(pady=(0, 16))
 
     def _start_download(self):
         """开始下载：验证输入 → 检测格式 → 创建任务"""
