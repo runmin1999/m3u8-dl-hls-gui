@@ -1100,6 +1100,17 @@ class App(ctk.CTk):
         dialog.transient(self)
         dialog.grab_set()
 
+        # 深色标题栏
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                hwnd = ctypes.windll.user32.GetForegroundWindow()
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 20, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
+                )
+            except Exception:
+                pass
+
         ctk.CTkLabel(dialog, text="高级设置", font=("", 14, "bold"), text_color=COLORS["text"]).pack(padx=20, pady=(16, 12))
 
         scroll = ctk.CTkScrollableFrame(dialog, fg_color=COLORS["card"], corner_radius=8)
