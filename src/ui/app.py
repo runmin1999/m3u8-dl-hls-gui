@@ -929,21 +929,10 @@ class App(ctk.CTk):
         self._schedule_queue()
 
     def _schedule_queue(self):
-        """定时检查队列，有空位时自动启动等待中的任务"""
+        """定时检查队列（仅在手动触发时启动任务，不自动调度）"""
         if self._queue_timer:
             self.after_cancel(self._queue_timer)
-        max_c = self._get_max_concurrent()
-        running = self._count_running()
-        if running < max_c:
-            # 找到第一个等待中的任务启动
-            for task in self.tasks.values():
-                if task.status in ("pending", "stopped", "paused", "failed"):
-                    if running >= max_c:
-                        break
-                    self._resume_task(task.task_id)
-                    running += 1
-        # 每秒检查一次
-        self._queue_timer = self.after(1000, self._schedule_queue)
+        self._queue_timer = None
 
     def _stop_all(self):
         """停止所有正在下载的任务"""
