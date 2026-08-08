@@ -557,6 +557,23 @@ class App(ctk.CTk):
         dialog.transient(self)
         dialog.grab_set()
 
+        # 深色标题栏
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                from ctypes import wintypes
+                dialog.update_idletasks()
+                tk_id = dialog.winfo_id()
+                GetAncestor = ctypes.windll.user32.GetAncestor
+                GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+                GetAncestor.restype = wintypes.HWND
+                hwnd = GetAncestor(tk_id, 2)
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 20, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
+                )
+            except Exception:
+                pass
+
         ctk.CTkLabel(dialog, text="批量导入链接", font=("", 14, "bold"), text_color=COLORS["text"]).pack(padx=20, pady=(16, 8))
         ctk.CTkLabel(dialog, text="每行一个链接，支持 M3U8 和 MP4 格式", font=("", 11), text_color=COLORS["text2"]).pack(padx=20, pady=(0, 8))
 
@@ -704,6 +721,23 @@ class App(ctk.CTk):
         dialog.geometry("500x400")
         dialog.configure(fg_color=COLORS["bg"])
         dialog.transient(self)
+
+        # 深色标题栏
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                from ctypes import wintypes
+                dialog.update_idletasks()
+                tk_id = dialog.winfo_id()
+                GetAncestor = ctypes.windll.user32.GetAncestor
+                GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+                GetAncestor.restype = wintypes.HWND
+                hwnd = GetAncestor(tk_id, 2)
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 20, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
+                )
+            except Exception:
+                pass
 
         ctk.CTkLabel(dialog, text="视频分析结果", font=("", 14, "bold"), text_color=COLORS["text"]).pack(padx=20, pady=(16, 8))
 
@@ -1190,6 +1224,24 @@ class App(ctk.CTk):
         dialog.configure(fg_color=COLORS["bg"])
         dialog.transient(self)
         dialog.grab_set()
+
+        # 深色标题栏
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                from ctypes import wintypes
+                dialog.update_idletasks()
+                tk_id = dialog.winfo_id()
+                GetAncestor = ctypes.windll.user32.GetAncestor
+                GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+                GetAncestor.restype = wintypes.HWND
+                hwnd = GetAncestor(tk_id, 2)
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 20, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
+                )
+            except Exception:
+                pass
+
         ctk.CTkLabel(dialog, text=f"发现新版本 {latest}", font=("", 14, "bold"), text_color=COLORS["success"]).pack(padx=20, pady=(20, 8))
         ctk.CTkLabel(dialog, text="前往 GitHub 下载最新版本？", font=("", 12), text_color=COLORS["text2"]).pack(padx=20, pady=(0, 16))
         def open_url():
