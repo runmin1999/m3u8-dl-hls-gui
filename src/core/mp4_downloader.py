@@ -44,7 +44,7 @@ def _build_curl_cmd(task, output_path, curl_path, parallel_max=8, resume=False):
     if resume and os.path.exists(output_path):
         cmd.extend(["-C", "-"])
 
-    cmd.extend(["--parallel", "--parallel-max", str(parallel_max), "--parallel-immediate"])
+    cmd.extend(["--parallel", "--parallel-immediate"])
 
     if task.proxy:
         cmd.extend(["-x", task.proxy])
@@ -177,11 +177,18 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
                         proc.kill()
                     except Exception:
                         pass
+                    task.status = "stopped"
+                    task.current_action = "已停止"
+                    task._mp4_downloaded = 0
+                    task._remaining_seconds = 0
+                    if on_progress:
+                        on_progress(task)
                     save_tasks(tasks_dict, TASKS_HISTORY_FILE)
                     return
 
                 if task._pause_flag:
                     task.current_action = "暂停中..."
+                    task.status = "paused"
                     if on_progress:
                         on_progress(task)
                     try:
@@ -191,8 +198,18 @@ def run_download_mp4(task, tasks_dict, on_progress=None):
                     while task._pause_flag and not task._stop_flag and task._dl_id == my_dl_id:
                         time.sleep(0.3)
                     if task._stop_flag or task._dl_id != my_dl_id:
+                        task.status = "stopped"
+                        task.current_action = "已停止"
+                        task._mp4_downloaded = 0
+                        task._remaining_seconds = 0
+                        if on_progress:
+                            on_progress(task)
                         save_tasks(tasks_dict, TASKS_HISTORY_FILE)
                         return
+                    task.status = "downloading"
+                    task.current_action = "续传中..."
+                    if on_progress:
+                        on_progress(task)
                     break  # 跳出内层循环，外层 while 会重新启动 curl
 
                 current_size = _get_file_size(tmp_path)
