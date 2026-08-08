@@ -1104,7 +1104,13 @@ class App(ctk.CTk):
         if sys.platform == "win32":
             try:
                 import ctypes
-                hwnd = ctypes.windll.user32.GetForegroundWindow()
+                from ctypes import wintypes
+                dialog.update_idletasks()
+                tk_id = dialog.winfo_id()
+                GetAncestor = ctypes.windll.user32.GetAncestor
+                GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+                GetAncestor.restype = wintypes.HWND
+                hwnd = GetAncestor(tk_id, 2)
                 ctypes.windll.dwmapi.DwmSetWindowAttribute(
                     hwnd, 20, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
                 )
