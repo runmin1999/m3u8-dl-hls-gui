@@ -39,7 +39,6 @@ def _build_curl_cmd(task, output_path, curl_path, parallel_max=8, resume=False):
         "--retry", "5",
         "--retry-delay", "3",
         "--retry-all-errors",
-        "--buffer-size", "1048576",
     ]
 
     if resume and os.path.exists(output_path):
