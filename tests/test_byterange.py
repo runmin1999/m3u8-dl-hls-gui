@@ -1,7 +1,7 @@
 """BYTERANGE 解析测试"""
 
 import unittest
-from m3u8_parser import parse_m3u8, _parse_byterange_value
+from src.core.hls_parser import parse_m3u8, _parse_byterange_value
 
 
 class TestParseByterangeValue(unittest.TestCase):

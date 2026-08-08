@@ -1,7 +1,7 @@
 """MP4 下载模块测试"""
 
 import unittest
-from downloader_mp4 import _is_download_complete, _find_curl, _build_curl_cmd
+from src.core.mp4_downloader import _is_download_complete, _find_curl, _build_curl_cmd
 
 
 class TestIsDownloadComplete(unittest.TestCase):

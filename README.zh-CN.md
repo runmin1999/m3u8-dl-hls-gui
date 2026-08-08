@@ -179,6 +179,11 @@ m3u8-dl-hls-gui/
 
 ## 更新日志
 
+### v0.28
+
+- 🔧 **项目结构重构** — 代码拆分为 `src/models`、`src/core`、`src/ui`、`src/services`、`src/utils` 模块
+- 🔧 **配置项补全** — `config.json` 补充 `max_concurrent` 和 `auto_update_check` 配置项
+
 ### v0.27
 
 - ✨ **任务队列** — 支持设置最大并行下载数（隐藏配置 `max_concurrent`，默认 3），避免带宽和磁盘竞争

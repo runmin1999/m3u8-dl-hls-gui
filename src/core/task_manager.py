@@ -22,10 +22,10 @@ def start_download(task, tasks_dict, on_progress=None, resolution="最高分辨�
             from urllib.parse import urlparse as _urlparse
             _path = _urlparse(task.url).path.rstrip('/').lower()
             if _path.endswith('.mp4'):
-                from downloader_mp4 import run_download_mp4
+                from src.core.mp4_downloader import run_download_mp4
                 run_download_mp4(task, tasks_dict, on_progress)
             else:
-                from downloader_m3u8 import run_download
+                from src.core.hls_downloader import run_download
                 run_download(task, tasks_dict, on_progress, resolution)
         except Exception as e:
             logger.error(f"任务执行异常: {e}")

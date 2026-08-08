@@ -10,13 +10,13 @@ class TestVerifyMediaFile(unittest.TestCase):
 
     def test_nonexistent_file(self):
         """不存在的文件应返回 verified=False"""
-        from utils import verify_media_file
+        from src.utils.helpers import verify_media_file
         result = verify_media_file("/nonexistent/file.mp4")
         self.assertFalse(result["verified"])
 
     def test_empty_file(self):
         """空文件应返回 verified=False 或有 error"""
-        from utils import verify_media_file
+        from src.utils.helpers import verify_media_file
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
             f.write(b"")
             path = f.name
@@ -31,14 +31,14 @@ class TestVerifyMediaFile(unittest.TestCase):
 
     def test_return_structure(self):
         """返回值应包含必要字段"""
-        from utils import verify_media_file
+        from src.utils.helpers import verify_media_file
         result = verify_media_file("/nonexistent/file.mp4")
         self.assertIn("verified", result)
         self.assertIn("error", result)
 
     def test_invalid_file(self):
         """非媒体文件应返回 verified=False 或有 error"""
-        from utils import verify_media_file
+        from src.utils.helpers import verify_media_file
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
             f.write(b"this is not a video file")
             path = f.name

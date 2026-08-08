@@ -18,7 +18,7 @@ _merge_concurrency = 0
 def _get_merge_semaphore():
     """获取合并信号量，支持从 config 动态读取并发数"""
     global _merge_semaphore, _merge_concurrency
-    from utils import load_config, get_base_dir
+    from src.utils.helpers import load_config, get_base_dir
     config_file = os.path.join(get_base_dir(), "config.json")
     config = load_config(config_file)
     new_limit = max(1, min(16, config.get("ffmpeg_concurrency", 2)))

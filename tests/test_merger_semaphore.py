@@ -3,7 +3,7 @@
 import unittest
 from unittest.mock import patch, MagicMock
 
-import merger
+from src.core import merger
 
 
 class TestSemaphoreConsistency(unittest.TestCase):
@@ -13,7 +13,7 @@ class TestSemaphoreConsistency(unittest.TestCase):
         """acquire 和 release 应在同一个 Semaphore 上调用"""
         mock_semaphore = MagicMock()
 
-        with patch('merger._get_merge_semaphore', return_value=mock_semaphore):
+        with patch('src.core.merger._get_merge_semaphore', return_value=mock_semaphore):
             semaphore = merger._get_merge_semaphore()
             semaphore.acquire()
             try:

@@ -7,11 +7,11 @@ from unittest.mock import patch, MagicMock
 
 from Crypto.Cipher import AES
 
-from decryptor import (
+from src.core.decryptor import (
     fetch_key, decrypt_segment, _unpad_pkcs7,
     _extract_segment_index, decrypt_files,
 )
-from m3u8_parser import Segment
+from src.core.hls_parser import Segment
 
 
 def _pkcs7_pad(data: bytes, block_size: int = 16) -> bytes:
@@ -29,7 +29,7 @@ def _encrypt(data: bytes, key: bytes, iv: bytes) -> bytes:
 class TestKeyFetch(unittest.TestCase):
     """A1: AES key 长度校验"""
 
-    @patch('decryptor.requests.get')
+    @patch('src.core.decryptor.requests.get')
     def test_key_wrong_length_raises(self, mock_get):
         """密钥长度不是 16 字节时应抛出 ValueError"""
         mock_resp = MagicMock()
@@ -41,7 +41,7 @@ class TestKeyFetch(unittest.TestCase):
             fetch_key("http://example.com/key.bin")
         self.assertIn("16 字节", str(ctx.exception))
 
-    @patch('decryptor.requests.get')
+    @patch('src.core.decryptor.requests.get')
     def test_key_correct_length_caches(self, mock_get):
         """正确长度的密钥应被缓存"""
         mock_resp = MagicMock()
@@ -49,7 +49,7 @@ class TestKeyFetch(unittest.TestCase):
         mock_resp.raise_for_status = MagicMock()
         mock_get.return_value = mock_resp
 
-        from decryptor import _key_cache
+        from src.core.decryptor import _key_cache
         _key_cache.clear()
 
         key1 = fetch_key("http://example.com/key.bin")
@@ -139,7 +139,7 @@ class TestImplicitIV(unittest.TestCase):
             with open(fp2, "wb") as f:
                 f.write(enc2)
 
-            with patch('decryptor.fetch_key', return_value=key):
+            with patch('src.core.decryptor.fetch_key', return_value=key):
                 result = decrypt_files(
                     [fp1, fp2], segments,
                     media_sequence=0,  # base=0，但应使用 seg.index
@@ -229,7 +229,7 @@ class TestAtomicWrite(unittest.TestCase):
             with open(filepath, "wb") as f:
                 f.write(encrypted)
 
-            with patch('decryptor.fetch_key', return_value=key):
+            with patch('src.core.decryptor.fetch_key', return_value=key):
                 decrypt_files([filepath], [seg], media_sequence=0)
 
             # 检查无残留
@@ -253,7 +253,7 @@ class TestDecryptionFailureTerminates(unittest.TestCase):
             with open(filepath, "wb") as f:
                 f.write(b"not valid encrypted data at all!!")
 
-            with patch('decryptor.fetch_key', return_value=b"0123456789abcdef"):
+            with patch('src.core.decryptor.fetch_key', return_value=b"0123456789abcdef"):
                 with self.assertRaises(RuntimeError) as ctx:
                     decrypt_files([filepath], [seg], media_sequence=0)
                 self.assertIn("解密失败", str(ctx.exception))
